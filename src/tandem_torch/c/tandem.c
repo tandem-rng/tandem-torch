@@ -2,6 +2,9 @@
 #include "tandem.h"
 
 #include <string.h>
+#if defined(__ARM_NEON) && defined(__aarch64__)
+#include <arm_neon.h>
+#endif
 
 #define CLOCK_WEYL 0x9e3779b9u
 #define DOMAIN_STREAM 0x9e3779b9u
@@ -73,6 +76,11 @@ void tandem_block(const uint32_t key[4], uint64_t c, uint32_t j, uint32_t out[4]
  * extensions and compiles to NEON or SSE/AVX; the scalar version below it is the same
  * loop written out, for other compilers or -DTANDEM_NO_SIMD. */
 
+/* What the row loop writes: the raw words, or the words mapped to floats on the way out,
+ * while the row is still in registers. A second pass over the buffer costs about as much as
+ * the generation itself. */
+typedef enum { STORE_RAW, STORE_F32, STORE_F64 } store_mode;
+
 #if (defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 12)) && !defined(TANDEM_NO_SIMD)
 typedef uint32_t u32x4 __attribute__((vector_size(16)));
 typedef uint64_t u64x4 __attribute__((vector_size(32)));
@@ -129,8 +137,34 @@ static void quad_seed(quad *q, const uint32_t key[4], uint64_t c0) {
     }
 }
 
+typedef uint64_t u64x2 __attribute__((vector_size(16)));
+typedef float f32x4 __attribute__((vector_size(16)));
+typedef double f64x2 __attribute__((vector_size(16)));
+
+static inline void store_block(u32x4 b, char *dst, store_mode mode) {
+    if (mode == STORE_F32) {
+#if defined(__ARM_NEON) && defined(__aarch64__)
+        float32x4_t f = vcvtq_n_f32_u32(vshrq_n_u32((uint32x4_t)b, 8), 24);
+#else
+        f32x4 f = __builtin_convertvector(b >> 8, f32x4) * 0x1p-24f;
+#endif
+        memcpy(dst, &f, 16);
+    } else if (mode == STORE_F64) {
+        u64x2 w;
+        memcpy(&w, &b, 16);
+#if defined(__ARM_NEON) && defined(__aarch64__)
+        float64x2_t f = vcvtq_n_f64_u64(vshrq_n_u64((uint64x2_t)w, 11), 53);
+#else
+        f64x2 f = __builtin_convertvector(w >> 11, f64x2) * 0x1p-53;
+#endif
+        memcpy(dst, &f, 16);
+    } else {
+        memcpy(dst, &b, 16);
+    }
+}
+
 /* The four blocks of a quad in stream order: a 4x4 word transpose. */
-static inline void quad_store(const quad *q, char *dst) {
+static inline void quad_store(const quad *q, char *dst, store_mode mode) {
     u32x4 t0 = __builtin_shufflevector(q->o[0], q->o[1], 0, 4, 1, 5);
     u32x4 t1 = __builtin_shufflevector(q->o[2], q->o[3], 0, 4, 1, 5);
     u32x4 t2 = __builtin_shufflevector(q->o[0], q->o[1], 2, 6, 3, 7);
@@ -139,10 +173,10 @@ static inline void quad_store(const quad *q, char *dst) {
     u32x4 b1 = __builtin_shufflevector(t0, t1, 2, 3, 6, 7);
     u32x4 b2 = __builtin_shufflevector(t2, t3, 0, 1, 4, 5);
     u32x4 b3 = __builtin_shufflevector(t2, t3, 2, 3, 6, 7);
-    memcpy(dst, &b0, 16);
-    memcpy(dst + 16, &b1, 16);
-    memcpy(dst + 32, &b2, 16);
-    memcpy(dst + 48, &b3, 16);
+    store_block(b0, dst, mode);
+    store_block(b1, dst + 16, mode);
+    store_block(b2, dst + 32, mode);
+    store_block(b3, dst + 48, mode);
 }
 
 static inline void lanes_load(lanes *L, const tandem_rng *rng) {
@@ -171,9 +205,9 @@ static inline void lanes_seed(lanes *L, const uint32_t key[4], uint64_t g) {
     quad_seed(&L->q[1], key, 8u * g + 4u);
 }
 
-static inline void lanes_store(const lanes *L, char *dst) {
-    quad_store(&L->q[0], dst);
-    quad_store(&L->q[1], dst + 64);
+static inline void lanes_store(const lanes *L, char *dst, store_mode mode) {
+    quad_store(&L->q[0], dst, mode);
+    quad_store(&L->q[1], dst + 64, mode);
 }
 #else
 typedef struct {
@@ -213,11 +247,23 @@ static inline void lanes_seed(lanes *L, const uint32_t key[4], uint64_t g) {
     }
 }
 
-static inline void lanes_store(const lanes *L, char *dst) {
+static inline void lanes_store(const lanes *L, char *dst, store_mode mode) {
     uint32_t row[32];
     for (unsigned l = 0; l < 8; l++)
         for (unsigned w = 0; w < 4; w++) row[4u * l + w] = L->o[w][l];
-    memcpy(dst, row, sizeof row);
+    if (mode == STORE_F32) {
+        float f[32];
+        for (unsigned i = 0; i < 32; i++) f[i] = (float)(row[i] >> 8) * 0x1p-24f;
+        memcpy(dst, f, sizeof f);
+    } else if (mode == STORE_F64) {
+        uint64_t raw[16];
+        double f[16];
+        memcpy(raw, row, sizeof raw);
+        for (unsigned i = 0; i < 16; i++) f[i] = (double)(raw[i] >> 11) * 0x1p-53;
+        memcpy(dst, f, sizeof f);
+    } else {
+        memcpy(dst, row, sizeof row);
+    }
 }
 #endif
 
@@ -232,7 +278,7 @@ static inline unsigned log2k(uint32_t K) {
 /* Produce rows [row, row + nrows) in stream order, 128 bytes each, into `out`, or only move
  * the cache when out is NULL. Stepping forward inside the cached group costs one T per row;
  * any other jump reseeds the group. Afterwards the cache holds the last row produced. */
-static void run_rows(tandem_rng *rng, uint64_t row, size_t nrows, char *out) {
+static void run_rows(tandem_rng *rng, uint64_t row, size_t nrows, char *out, store_mode mode) {
     unsigned shift = log2k(rng->K);
     uint64_t mask = rng->K - 1u, at = rng->row;
     int live = rng->cached != 0;
@@ -255,7 +301,7 @@ static void run_rows(tandem_rng *rng, uint64_t row, size_t nrows, char *out) {
         for (size_t r = 0; r < run; r++) {
             if (r) lanes_T(&L);
             if (out) {
-                lanes_store(&L, out);
+                lanes_store(&L, out, mode);
                 out += 128;
             }
         }
@@ -269,7 +315,7 @@ static void run_rows(tandem_rng *rng, uint64_t row, size_t nrows, char *out) {
 }
 
 static inline void load_row(tandem_rng *rng, uint64_t row) {
-    if (!rng->cached || rng->row != row) run_rows(rng, row, 1, NULL);
+    if (!rng->cached || rng->row != row) run_rows(rng, row, 1, NULL, STORE_RAW);
 }
 
 /* ---- Reads ----------------------------------------------------------------------------- */
@@ -383,7 +429,7 @@ static void fill_raw(tandem_rng *rng, void *out, size_t n, unsigned w) {
     for (; nbytes && (p & 1023u); nbytes--, p += 8u) *dst++ = (char)read(rng, p, 8);
     if (nbytes >= 128u) {
         size_t nrows = nbytes / 128u;
-        run_rows(rng, p >> 10, nrows, dst);
+        run_rows(rng, p >> 10, nrows, dst, STORE_RAW);
         dst += nrows * 128u;
         p += nrows * 1024u;
         nbytes -= nrows * 128u;
@@ -401,22 +447,30 @@ void tandem_fill_bool(tandem_rng *rng, bool *out, size_t n) {
     for (size_t i = 0; i < n; i++) out[i] = tandem_next_bool(rng);
 }
 
+/* Whole rows of a float fill, mapped on the way out; returns how many elements remain. */
+static size_t fill_rows(tandem_rng *rng, void *out, size_t n, unsigned w, store_mode mode) {
+    uint64_t p = rng->pos; /* at a row boundary, or n is 0 */
+    size_t per_row = 1024u / w, nrows = n / per_row;
+    if (nrows == 0) return n;
+    run_rows(rng, p >> 10, nrows, out, mode);
+    rng->pos = p + nrows * 1024u;
+    return n - nrows * per_row;
+}
+
 void tandem_fill_f32(tandem_rng *rng, float *out, size_t n) {
-    fill_raw(rng, out, n, 32);
-    for (size_t i = 0; i < n; i++) {
-        uint32_t raw;
-        memcpy(&raw, out + i, 4);
-        out[i] = to_f32(raw);
-    }
+    rng->pos = align_pos(rng->pos, 32);
+    for (; n && (rng->pos & 1023u); n--) *out++ = tandem_next_f32(rng);
+    size_t rest = fill_rows(rng, out, n, 32, STORE_F32);
+    out += n - rest;
+    for (; rest; rest--) *out++ = tandem_next_f32(rng);
 }
 
 void tandem_fill_f64(tandem_rng *rng, double *out, size_t n) {
-    fill_raw(rng, out, n, 64);
-    for (size_t i = 0; i < n; i++) {
-        uint64_t raw;
-        memcpy(&raw, out + i, 8);
-        out[i] = to_f64(raw);
-    }
+    rng->pos = align_pos(rng->pos, 64);
+    for (; n && (rng->pos & 1023u); n--) *out++ = tandem_next_f64(rng);
+    size_t rest = fill_rows(rng, out, n, 64, STORE_F64);
+    out += n - rest;
+    for (; rest; rest--) *out++ = tandem_next_f64(rng);
 }
 
 void tandem_fill_f16_bits(tandem_rng *rng, uint16_t *out, size_t n) {
