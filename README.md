@@ -71,14 +71,14 @@ CUDA tests run by hand on a GPU host.
 
 Preallocated outputs, 2^27 elements, `python tools/bench.py [cpu|cuda]`.
 
-Apple M4, one thread, minimum of 7, host load 16 from other sessions:
+Apple M4, one thread, minimum of 7, load 2.2:
 
 | | GiB/s |
 |---|---|
-| `Tandem.rand` float32 / float64 | 10.5 / 10.0 |
-| `torch.rand` float32 / float64 | 2.1 / 3.6 |
-| `Tandem.bits` uint32 | 13.3 |
-| `torch.randint` int32 | 1.4 |
+| `Tandem.rand` float32 / float64 | 13.2 / 13.1 |
+| `torch.rand` float32 / float64 | 3.3 / 5.0 |
+| `Tandem.bits` uint32 | 17.1 |
+| `torch.randint` int32 | 2.4 |
 
 NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 21, host load
 100 from other users' CPU jobs:
