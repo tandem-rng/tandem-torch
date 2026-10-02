@@ -1,7 +1,7 @@
 """Throughput of 2**27-element fills against torch's own generator, into preallocated tensors.
 
 CPU: minimum of 7 wall-clock timings after a warm-up. CUDA: cudaEvent timings, half a second of
-warm-up, minimum of 21, as tandem-cuda's bench does. Usage: python tools/bench.py [cpu|cuda]
+warm-up, minimum of 21. Usage: python tools/bench.py [cpu|cuda]
 """
 
 import os

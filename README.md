@@ -3,14 +3,9 @@
 # tandem-torch
 
 PyTorch tensors from [Tandem8x32](https://github.com/tandem-rng/spec), a noncryptographic
-pseudorandom number generator built to be fast on CPUs and GPUs alike. CPU fills call the C
-reference [tandem-c](https://github.com/tandem-rng/tandem-c), CUDA fills call
-[tandem-cuda](https://github.com/tandem-rng/tandem-cuda), and both produce the same stream,
-bit for bit, as [TandemRNG.jl](https://github.com/tandem-rng/TandemRNG.jl),
-[tandem-rs](https://github.com/tandem-rng/tandem-rs),
-[tandem-numpy](https://github.com/tandem-rng/tandem-numpy),
-[tandem-jax](https://github.com/tandem-rng/tandem-jax) and
-[tandem-r](https://github.com/tandem-rng/tandem-r).
+pseudorandom number generator built to be fast on CPUs and GPUs alike. CPU fills use a
+vendored copy of the reference C implementation, CUDA fills a vendored copy of the reference
+CUDA header, and both produce the stream the specification defines, bit for bit.
 
 This is not a `torch.Generator`. That class is final and its RNG hooks are internal to
 PyTorch, so no third-party generator can drive `torch.rand`. `tandem_torch` fills tensors
@@ -23,7 +18,7 @@ languages and devices.
 import torch
 from tandem_torch import Tandem
 
-t = Tandem(42)                                   # the stream of Julia Tandem8x32(42)
+t = Tandem(42)                                   # the spec's stream for seed 42     
 u = t.rand(1_000_000)                            # float64 in [0, 1), 53 random bits
 f = t.rand(1 << 20, dtype=torch.float32, device="cuda")
 w = t.bits(1 << 20, dtype=torch.uint32)          # stream words
@@ -37,7 +32,7 @@ t.key, t.position, t.chunk_length                # transport form
 
 Every call aligns the stream position to the element width, reads, and advances, as the
 specification requires, so a `uint8` draw followed by a `float64` draw skips to the next
-64-bit boundary exactly like the other implementations. The functional forms
+64-bit boundary. The functional forms
 `tandem_torch.rand(key, position, *shape, ...)` and `tandem_torch.bits(...)` return
 `(tensor, next_position)` for code that keeps the position itself.
 
@@ -46,7 +41,7 @@ reinterpreted, `float16` (`(raw >> 5) * 2^-11`), `float32` (24 random bits) and 
 (53 random bits). `randn` is tandem-torch's own convention: `erfinv` of one float64 uniform
 shifted by half an ulp into `(0, 1)`, so it consumes 64 stream bits per normal and is finite.
 
-On CUDA, 32-bit and 64-bit types go straight to the tandem-cuda tile kernel. Narrower types
+On CUDA, 32-bit and 64-bit types go straight to the tile kernel. Narrower types
 and `bool` come from a word fill over the same stream bytes, since the stream is one byte
 sequence after alignment.
 
@@ -66,11 +61,10 @@ a Linux GPU environment with nvcc 12.8 from conda-forge and PyTorch's cu128 whee
 ## Tests
 
 `tests/test_tandem.py` checks every vector of the specification (`tests/vectors.json`, a copy
-of the spec repository's file) and compares fills from several offsets with dumps written by
-TandemRNG.jl (`tests/data`, shared with tandem-c). With a CUDA device the suite also compares
+of the spec repository's file) and compares fills from several offsets with reference stream dumps in `tests/data`. With a CUDA device the suite also compares
 CUDA fills with CPU fills for every dtype, four chunk lengths, fourteen positions and nine
 lengths, and on storage that is not 16-byte aligned. CI runs the CPU tests on Linux and
-macOS and fails when the vendored sources or the vectors drift from their repositories. The
+macOS and fails when the vendored sources or the vectors drift from upstream. The
 CUDA tests run by hand on a GPU host.
 
 ## Speed
@@ -96,9 +90,9 @@ NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 2
 | `Tandem.bits` uint32 | 1314 |
 | `torch.randint` int32 | 336 |
 
-The CPU path is tandem-c's row engine, the CUDA path is tandem-cuda's shared-memory tile.
-At 2^27 elements the tile reads a little below its 2^28 figure of 1383 to 1395 GiB/s because
-launch and clock ramp are a larger share of the time.
+The CPU path is the C row engine, the CUDA path is the shared-memory tile kernel. At 2^27
+elements the tile reads a little below its 2^28 rate because launch and clock ramp are a
+larger share of the time.
 
 ## License
 

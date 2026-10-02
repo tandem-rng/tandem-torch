@@ -1,4 +1,4 @@
-// CUDA fills over the tandem-cuda header, on the tensor's current stream.
+// CUDA fills over the vendored CUDA header, on the tensor's current stream.
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>

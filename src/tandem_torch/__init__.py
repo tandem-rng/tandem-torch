@@ -3,7 +3,7 @@
 A :class:`Tandem` holds the transport form of the specification (128-bit key, chunk length
 ``K``) and a stream bit position. Every fill aligns the position to the element width, reads,
 and advances past the elements, so the tensors equal the fills of the other implementations
-for the same key and position. The CPU path is the C reference, the CUDA path is tandem-cuda.
+for the same key and position. The CPU path is the reference C implementation, the CUDA path the reference CUDA header.
 """
 
 import math
