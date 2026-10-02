@@ -24,7 +24,7 @@ no-build-isolation = ["tandem-torch"]
 
 [tasks]
 test = "pytest"
-bench = "python tools/bench.py"
+bench = { cmd = "python tools/bench.py", depends-on = ["build"] }
 # The editable install does not rebuild the extension on source edits.
 build = "python setup.py build_ext --inplace"
 

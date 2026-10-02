@@ -4,7 +4,6 @@ CPU: minimum of 7 wall-clock timings after a warm-up. CUDA: cudaEvent timings, h
 warm-up, minimum of 21. Usage: python tools/bench.py [cpu|cuda]
 """
 
-import os
 import sys
 import time
 
@@ -60,4 +59,4 @@ rows.append(("torch.randint int32", gibs(
 
 for name, g in rows:
     print(f"{name:28s} {g:8.1f} GiB/s")
-print("device", device, torch.cuda.get_device_name() if device == "cuda" else "", "load", os.getloadavg())
+print("device", device, torch.cuda.get_device_name() if device == "cuda" else "")

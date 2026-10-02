@@ -75,7 +75,7 @@ Apple M4, one thread, minimum of 7:
 
 | | GiB/s |
 |---|---|
-| `Tandem.rand` float32 / float64 | 13.2 / 13.1 |
+| `Tandem.rand` float32 / float64 | 15.3 / 15.0 |
 | `torch.rand` float32 / float64 | 3.3 / 5.0 |
 | `Tandem.bits` uint32 | 17.1 |
 | `torch.randint` int32 | 2.4 |
