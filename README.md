@@ -71,7 +71,7 @@ CUDA tests run by hand on a GPU host.
 
 Preallocated outputs, 2^27 elements, `python tools/bench.py [cpu|cuda]`.
 
-Apple M4, one thread, minimum of 7, load 2.2:
+Apple M4, one thread, minimum of 7:
 
 | | GiB/s |
 |---|---|
@@ -80,8 +80,7 @@ Apple M4, one thread, minimum of 7, load 2.2:
 | `Tandem.bits` uint32 | 17.1 |
 | `torch.randint` int32 | 2.4 |
 
-NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 21, host load
-100 from other users' CPU jobs:
+NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 21:
 
 | | GiB/s |
 |---|---|
