@@ -1,0 +1,61 @@
+# Development environments. `default` is the CPU build for any machine. `cuda` is for a Linux
+# GPU host: nvcc from conda-forge and PyTorch's own CUDA 12.8 wheel, which matches a 570 driver.
+[workspace]
+name = "tandem-torch"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64", { name = "linux-64-cuda", platform = "linux-64", cuda = "12.8" }]
+
+[dependencies]
+python = "3.14.*"
+setuptools = ">=68"
+pytest = "*"
+numpy = "*"
+pip = "*"
+c-compiler = "*"
+cxx-compiler = "*"
+
+[pypi-dependencies]
+tandem-torch = { path = ".", editable = true }
+
+# Build against the environment's torch. An isolated build would fetch its own torch from
+# PyPI, which on Linux is a different CUDA build.
+[pypi-options]
+no-build-isolation = ["tandem-torch"]
+
+[tasks]
+test = "pytest"
+bench = "python tools/bench.py"
+# The editable install does not rebuild the extension on source edits.
+build = "python setup.py build_ext --inplace"
+
+[feature.cpu.dependencies]
+pytorch = { version = ">=2.13", build = "cpu*" }
+
+[feature.cuda]
+platforms = ["linux-64-cuda"]
+
+[feature.cuda.dependencies]
+setuptools = "<82"
+cuda-version = "12.8.*"
+cuda-nvcc = "12.8.*"
+cuda-cudart-dev = "12.8.*"
+# ATen/cuda/CUDAContext.h includes these.
+libcusparse-dev = "*"
+libcublas-dev = "*"
+libcusolver-dev = "*"
+libcufft-dev = "*"
+libcurand-dev = "*"
+cuda-nvrtc-dev = "12.8.*"
+gxx = "13.*"
+gcc = "13.*"
+
+# nvcc 12.8 does not know every arch in torch's default list, so name the targets.
+[feature.cuda.activation.env]
+TORCH_CUDA_ARCH_LIST = "8.0;8.6;8.9;9.0"
+
+[feature.cuda.pypi-dependencies]
+torch = { version = "==2.11.0+cu128", index = "https://download.pytorch.org/whl/cu128" }
+
+[environments]
+default = ["cpu"]
+cuda = ["cuda"]

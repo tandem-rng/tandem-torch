@@ -1,0 +1,7 @@
+build/
+*.so
+*.egg-info/
+__pycache__/
+.pixi/
+pixi.lock
+.pytest_cache/
