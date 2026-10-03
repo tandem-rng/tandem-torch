@@ -32,7 +32,7 @@ if with_cuda == "auto":
 
 sources = [f"{pkg}/_ext.cpp"]
 kwargs = dict(
-    include_dirs=[tandem_c, tandem_cuda],
+    include_dirs=[tandem_c, tandem_cuda, os.path.join(tandem_cuda, "include")],
     extra_objects=[tandem_object()],
     extra_compile_args={"cxx": ["-O2"]},
 )
