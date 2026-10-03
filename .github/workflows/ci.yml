@@ -35,6 +35,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: true
+          # A shallow submodule has no history between the pin and main.
+          fetch-depth: 0
       - run: |
           for m in external/tandem-c external/tandem-cuda; do
             git -C $m fetch origin main && git -C $m merge-base --is-ancestor HEAD FETCH_HEAD
