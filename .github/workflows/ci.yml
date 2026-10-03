@@ -37,7 +37,7 @@ jobs:
           submodules: true
       - run: |
           for m in external/tandem-c external/tandem-cuda; do
-            git -C $m fetch origin main && git -C $m merge-base --is-ancestor HEAD origin/main
+            git -C $m fetch origin main && git -C $m merge-base --is-ancestor HEAD FETCH_HEAD
           done
       - run: git clone --depth 1 https://github.com/tandem-rng/spec ../spec
       - run: diff ../spec/vectors.json tests/vectors.json
