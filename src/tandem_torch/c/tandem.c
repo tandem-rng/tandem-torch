@@ -4,6 +4,8 @@
 #include <string.h>
 #if defined(__ARM_NEON) && defined(__aarch64__)
 #include <arm_neon.h>
+#elif defined(__SSE2__)
+#include <emmintrin.h>
 #endif
 
 #define CLOCK_WEYL 0x9e3779b9u
@@ -95,12 +97,36 @@ typedef struct {
 
 static inline u32x4 vrotl(u32x4 x, unsigned r) { return (x << r) | (x >> (32u - r)); }
 
+/* Low and high words of the four 32x32 to 64-bit products. GCC does not lower the widened
+   64-bit vector multiply to umull on AArch64 and scalarizes it instead, which costs more than
+   half the fill speed, so NEON gets the widening multiply spelled out. */
+static inline void vmul_wide(u32x4 a, u32x4 b, u32x4 *lo, u32x4 *hi) {
+#if defined(__ARM_NEON) && defined(__aarch64__)
+    uint32x4_t va = (uint32x4_t)a, vb = (uint32x4_t)b;
+    uint32x4_t p0 = vreinterpretq_u32_u64(vmull_u32(vget_low_u32(va), vget_low_u32(vb)));
+    uint32x4_t p1 = vreinterpretq_u32_u64(vmull_high_u32(va, vb));
+    *lo = (u32x4)vuzp1q_u32(p0, p1);
+    *hi = (u32x4)vuzp2q_u32(p0, p1);
+#elif defined(__SSE2__)
+    /* pmuludq multiplies lanes 0 and 2. GCC emulates the widened 64-bit multiply with three of
+       them per vector instead, which costs most of the fill speed on x86. */
+    __m128i va = (__m128i)a, vb = (__m128i)b;
+    u32x4 p02 = (u32x4)_mm_mul_epu32(va, vb);
+    u32x4 p13 = (u32x4)_mm_mul_epu32(_mm_srli_epi64(va, 32), _mm_srli_epi64(vb, 32));
+    *lo = __builtin_shufflevector(p02, p13, 0, 4, 2, 6);
+    *hi = __builtin_shufflevector(p02, p13, 1, 5, 3, 7);
+#else
+    u64x4 p = __builtin_convertvector(a, u64x4) * __builtin_convertvector(b, u64x4);
+    *lo = __builtin_convertvector(p, u32x4);
+    *hi = __builtin_convertvector(p >> 32, u32x4);
+#endif
+}
+
 static inline void quad_T(quad *q) {
     u32x4 *o = q->o, *h = q->h;
-    u64x4 p0 = __builtin_convertvector(o[0], u64x4) * __builtin_convertvector(h[0] | 1u, u64x4);
-    u64x4 p1 = __builtin_convertvector(o[2], u64x4) * __builtin_convertvector(h[1] | 1u, u64x4);
-    u32x4 lo0 = __builtin_convertvector(p0, u32x4), hi0 = __builtin_convertvector(p0 >> 32, u32x4);
-    u32x4 lo1 = __builtin_convertvector(p1, u32x4), hi1 = __builtin_convertvector(p1 >> 32, u32x4);
+    u32x4 lo0, hi0, lo1, hi1;
+    vmul_wide(o[0], h[0] | 1u, &lo0, &hi0);
+    vmul_wide(o[2], h[1] | 1u, &lo1, &hi1);
     u32x4 n0 = o[1] ^ hi1 ^ lo1;
     u32x4 n1 = vrotl(lo1, 16) ^ h[2];
     u32x4 n2 = o[3] ^ hi0 ^ lo0;
@@ -118,23 +144,28 @@ static inline void quad_T(quad *q) {
     o[3] = n3;
 }
 
-/* F on chunks c0 .. c0+3 at once. */
+/* F on chunks c0 .. c0+3 at once. The rounds run on a local copy: through the pointer GCC -O2
+   keeps the state in memory for all eight rounds, which costs half the fill speed at K = 32. */
 static void quad_seed(quad *q, const uint32_t key[4], uint64_t c0) {
     uint32_t lo = (uint32_t)c0;
     u32x4 counter = {lo, lo + 1u, lo + 2u, lo + 3u}, zero = {0, 0, 0, 0};
-    q->o[0] = counter;
-    q->o[1] = zero + (uint32_t)(c0 >> 32);
-    q->o[2] = zero + DOMAIN_STREAM;
-    q->o[3] = zero + AUX_STREAM;
-    for (unsigned w = 0; w < 4; w++) q->h[w] = zero + key[w];
+    quad w;
+    w.o[0] = counter;
+    w.o[1] = zero + (uint32_t)(c0 >> 32);
+    w.o[2] = zero + DOMAIN_STREAM;
+    w.o[3] = zero + AUX_STREAM;
+    w.h[0] = zero + key[0];
+    w.h[1] = zero + key[1];
+    w.h[2] = zero + key[2];
+    w.h[3] = zero + key[3];
     for (int r = 0; r < 8; r++) {
-        u32x4 t[4];
-        quad_T(q);
-        q->o[0] ^= RC[r];
-        memcpy(t, q->o, sizeof t);
-        memcpy(q->o, q->h, sizeof t);
-        memcpy(q->h, t, sizeof t);
+        quad_T(&w);
+        w.o[0] ^= RC[r];
+        u32x4 t0 = w.o[0], t1 = w.o[1], t2 = w.o[2], t3 = w.o[3];
+        w.o[0] = w.h[0], w.o[1] = w.h[1], w.o[2] = w.h[2], w.o[3] = w.h[3];
+        w.h[0] = t0, w.h[1] = t1, w.h[2] = t2, w.h[3] = t3;
     }
+    *q = w;
 }
 
 typedef uint64_t u64x2 __attribute__((vector_size(16)));
@@ -298,12 +329,18 @@ static void run_rows(tandem_rng *rng, uint64_t row, size_t nrows, char *out, sto
             live = 1;
         }
         if (run > nrows) run = nrows;
-        for (size_t r = 0; r < run; r++) {
-            if (r) lanes_T(&L);
-            if (out) {
+        /* The store leads and the step trails, with no branch between them: GCC -O2 otherwise
+           keeps the lanes in memory across the loop. */
+        if (out) {
+            size_t r = run;
+            do {
                 lanes_store(&L, out, mode);
                 out += 128;
-            }
+                if (--r == 0) break;
+                lanes_T(&L);
+            } while (1);
+        } else {
+            for (size_t r = 1; r < run; r++) lanes_T(&L);
         }
         at = row + run - 1u;
         row += run;

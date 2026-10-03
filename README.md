@@ -75,10 +75,10 @@ Apple M4, one thread, minimum of 7:
 
 | | GiB/s |
 |---|---|
-| `Tandem.rand` float32 / float64 | 15.3 / 15.0 |
-| `torch.rand` float32 / float64 | 3.3 / 5.0 |
-| `Tandem.bits` uint32 | 17.1 |
-| `torch.randint` int32 | 2.4 |
+| `Tandem.rand` float32 / float64 | 17.4 / 17.6 |
+| `torch.rand` float32 / float64 | 3.3 / 4.8 |
+| `Tandem.bits` uint32 | 20.2 |
+| `torch.randint` int32 | 2.3 |
 
 NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 21:
 
