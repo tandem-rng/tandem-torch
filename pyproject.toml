@@ -24,8 +24,5 @@ Source = "https://github.com/tandem-rng/tandem-torch"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-tandem_torch = ["c/tandem.h", "cuda/tandem.cuh"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,9 +3,9 @@
 # tandem-torch
 
 PyTorch tensors from [Tandem8x32](https://github.com/tandem-rng/spec), a noncryptographic
-pseudorandom number generator built to be fast on CPUs and GPUs alike. CPU fills use a
-vendored copy of the reference C implementation, CUDA fills a vendored copy of the reference
-CUDA header, and both produce the stream the specification defines, bit for bit.
+pseudorandom number generator built to be fast on CPUs and GPUs alike. CPU fills use the
+reference C implementation, CUDA fills the reference CUDA header, and both produce the stream
+the specification defines, bit for bit.
 
 This is not a `torch.Generator`. That class is final and its RNG hooks are internal to
 PyTorch, so no third-party generator can drive `torch.rand`. `tandem_torch` fills tensors
@@ -52,6 +52,10 @@ pip install torch   # a CPU or CUDA build, see pytorch.org
 pip install --no-build-isolation .
 ```
 
+The reference sources sit in the `external/tandem-c` and `external/tandem-cuda` git
+submodules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init`
+in an existing clone. GitHub's ZIP download omits submodules and does not build.
+
 The build needs a C and C++ compiler. With `nvcc` on the path (or `CUDA_HOME` set) the CUDA
 fills are built too, otherwise CUDA tensors raise. Set `TANDEM_TORCH_CUDA=0` or `1` to force
 the choice. For development, `pixi install` gives a CPU environment, `pixi install -e cuda`
@@ -64,8 +68,9 @@ a Linux GPU environment with nvcc 12.8 from conda-forge and PyTorch's cu128 whee
 of the spec repository's file) and compares fills from several offsets with reference stream dumps in `tests/data`. With a CUDA device the suite also compares
 CUDA fills with CPU fills for every dtype, four chunk lengths, fourteen positions and nine
 lengths, and on storage that is not 16-byte aligned. CI runs the CPU tests on Linux and
-macOS and fails when the vendored sources or the vectors drift from upstream. The
-CUDA tests run by hand on a GPU host.
+macOS and fails when the vectors drift from upstream or a submodule pin is not on its
+upstream main. `tools/bump.sh` moves the pins to the latest main. The CUDA tests run by hand
+on a GPU host.
 
 ## Speed
 

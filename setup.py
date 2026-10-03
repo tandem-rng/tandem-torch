@@ -11,7 +11,8 @@ from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtensio
 here = os.path.dirname(os.path.abspath(__file__))
 os.chdir(here)
 pkg = "src/tandem_torch"
-abs_pkg = os.path.join(here, pkg)
+tandem_c = os.path.join(here, "external", "tandem-c")
+tandem_cuda = os.path.join(here, "external", "tandem-cuda")
 
 
 def tandem_object():
@@ -20,7 +21,7 @@ def tandem_object():
     out = os.path.join(here, "build", "tandem.o")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     cc = os.environ.get("CC") or sysconfig.get_config_var("CC") or "cc"
-    cmd = cc.split() + ["-std=c99", "-O2", "-fPIC", "-c", "-o", out, f"{pkg}/c/tandem.c"]
+    cmd = cc.split() + ["-std=c99", "-O2", "-fPIC", "-c", "-o", out, os.path.join(tandem_c, "tandem.c")]
     subprocess.check_call(cmd)
     return out
 
@@ -31,7 +32,7 @@ if with_cuda == "auto":
 
 sources = [f"{pkg}/_ext.cpp"]
 kwargs = dict(
-    include_dirs=[f"{abs_pkg}/c", f"{abs_pkg}/cuda"],
+    include_dirs=[tandem_c, tandem_cuda],
     extra_objects=[tandem_object()],
     extra_compile_args={"cxx": ["-O2"]},
 )

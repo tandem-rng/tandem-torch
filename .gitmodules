@@ -1,0 +1,6 @@
+[submodule "external/tandem-c"]
+	path = external/tandem-c
+	url = https://github.com/tandem-rng/tandem-c
+[submodule "external/tandem-cuda"]
+	path = external/tandem-cuda
+	url = https://github.com/tandem-rng/tandem-cuda

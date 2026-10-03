@@ -20,19 +20,24 @@ jobs:
         python: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: pip install --no-build-isolation . pytest numpy
       - run: pytest
-  vendored:
-    name: vendored sources and vectors are current
+  pins:
+    name: submodule pins are on upstream main, vectors are current
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: git clone --depth 1 https://github.com/tandem-rng/tandem-c ../tandem-c
-      - run: git clone --depth 1 https://github.com/tandem-rng/tandem-cuda ../tandem-cuda
-      - run: diff ../tandem-c/tandem.c src/tandem_torch/c/tandem.c && diff ../tandem-c/tandem.h src/tandem_torch/c/tandem.h && diff ../tandem-cuda/tandem.cuh src/tandem_torch/cuda/tandem.cuh
+        with:
+          submodules: true
+      - run: |
+          for m in external/tandem-c external/tandem-cuda; do
+            git -C $m fetch origin main && git -C $m merge-base --is-ancestor HEAD origin/main
+          done
       - run: git clone --depth 1 https://github.com/tandem-rng/spec ../spec
       - run: diff ../spec/vectors.json tests/vectors.json

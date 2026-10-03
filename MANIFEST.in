@@ -1,0 +1,5 @@
+graft external/tandem-c
+graft external/tandem-cuda
+global-exclude .git
+# Only built when nvcc is present, so setuptools does not list it on its own.
+include src/tandem_torch/_cuda.cu
