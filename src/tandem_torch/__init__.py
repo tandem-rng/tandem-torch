@@ -13,7 +13,7 @@ import torch
 
 from . import _ext
 
-__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "has_cuda"]
+__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "randn", "has_cuda"]
 
 has_cuda = _ext.has_cuda
 
@@ -161,6 +161,31 @@ def randint(key, position, low, high, size, *, dtype=torch.int64, device="cpu", 
     return t.view(shape), nxt
 
 
+def randn(key, position, *shape, dtype=torch.float64, device="cpu", K=32):
+    """Standard normals by Box-Muller, as ``tandem_fill_normal_f64`` and ``_f32`` on CPU and
+    ``tandem::fill_normal_f64`` and ``_f32`` on CUDA. A float64 normal is made from two float64
+    uniforms (128 stream bits), a float32 normal from two float32 uniforms (64 bits) in float
+    arithmetic. The libm and CUDA math functions differ in the last bits, so devices agree to a
+    few ulps. Other float dtypes round the float32 normal. Not part of the specification.
+    Returns ``(tensor, next_position)``."""
+    if dtype not in _FLOATS:
+        raise TypeError(f"unsupported dtype {dtype} for randn")
+    native = dtype if dtype in (torch.float32, torch.float64) else torch.float32
+    t = torch.empty(shape, dtype=native, device=device)
+    key = _check_key(key)
+    if t.numel() == 0:
+        # tandem-c's empty normal fill leaves the position unaligned, tandem-cuda's and every
+        # other fill align it. Align here so both devices and all dtypes agree.
+        return t.to(dtype), _align(position, 8 * t.element_size())
+    if t.device.type == "cpu":
+        nxt = _ext.fill_normal_cpu(t, key, position, K)
+    elif t.device.type == "cuda" and has_cuda:
+        nxt = _ext.fill_normal_cuda(t, key, position, K)
+    else:
+        raise RuntimeError(f"tandem_torch fills CPU and CUDA tensors, not {t.device.type}")
+    return t.to(dtype), nxt
+
+
 def randperm(key, position, n, *, dtype=torch.int64, device="cpu", K=32):
     """A uniform permutation of ``range(n)`` by Fisher-Yates from the end: for i = n-1 down to
     1, swap element i with element j, where j is a scalar draw below i + 1 (Lemire, one draw
@@ -253,12 +278,10 @@ class Tandem:
         return x.index_select(dim, self.randperm(x.shape[dim], device=x.device))
 
     def randn(self, *shape, dtype=torch.float64, device="cpu"):
-        """Standard normal draws by the inverse CDF of one float64 uniform each. This is
-        tandem-torch's convention, not part of the specification. The uniform is shifted by
-        half an ulp into (0, 1) so the result is finite."""
-        u = self.rand(*shape, dtype=torch.float64, device=device)
-        z = torch.erfinv(2.0 * (u + 2.0**-54) - 1.0) * math.sqrt(2.0)
-        return z if dtype == torch.float64 else z.to(dtype)
+        """Standard normal draws by Box-Muller, see :func:`randn`."""
+        t, self.position = randn(self.key, self.position, *shape, dtype=dtype, device=device,
+                                 K=self.chunk_length)
+        return t
 
     # Derived generators --------------------------------------------------------------------
 

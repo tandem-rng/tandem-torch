@@ -171,12 +171,34 @@ def test_shapes_and_out():
     assert torch.equal(nc.flatten(), tt.Tandem(5).rand(12, dtype=torch.float32))
 
 
-def test_randn():
-    z = tt.Tandem(9).randn(200_000)
-    assert torch.isfinite(z).all()
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_randn_moments(device, dtype):
+    z = tt.Tandem(9).randn(200_000, dtype=dtype, device=device)
+    assert z.dtype == dtype and torch.isfinite(z).all()
     assert abs(z.mean().item()) < 0.01
     assert abs(z.std().item() - 1) < 0.01
-    assert tt.Tandem(9).randn(5, dtype=torch.float32).dtype == torch.float32
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_randn_matches_the_other_ports(device):
+    """Box-Muller values of tandem-cuda's Rng::normal and normalf after one bool. libm and
+    device math differ in the last bits: 1e-12 relative for float64, 8 ulps and 1e-6 absolute
+    for float32. The positions are exact."""
+    for dtype, want, end, tol in ((torch.float64, CROSS["normal_f64"], CROSS["normal_f64_end_pos"], 1e-12),
+                                  (torch.float32, CROSS["normal_f32"], CROSS["normal_f32_end_pos"], 8 * 2.0**-23)):
+        t = tt.Tandem(42)
+        t.randbool(1)
+        z = t.randn(64, dtype=dtype, device=device).cpu().double()
+        want = torch.tensor(want, dtype=torch.float64)
+        floor = 1e-6 if dtype == torch.float32 else 0
+        assert ((z - want).abs() <= tol * want.abs() + floor).all(), dtype
+        assert t.position == end
+
+
+def test_randn_rounds_narrow_dtypes_from_float32():
+    h = tt.Tandem(4).randn(100, dtype=torch.bfloat16)
+    assert torch.equal(h, tt.Tandem(4).randn(100, dtype=torch.float32).to(torch.bfloat16))
 
 
 def test_functional_forms():
@@ -328,6 +350,28 @@ def test_cuda_equals_cpu(dtype, K):
             b, nb = draw(key, pos, n, dtype=dtype, device="cuda", K=K)
             assert na == nb
             assert torch.equal(a, b.cpu()), (dtype, K, pos, n)
+
+
+@CUDA
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_cuda_normals_equal_cpu(dtype):
+    for pos in (0, 33, 1000):
+        for n in (0, 1, 7, 1001, 2**16 + 3):
+            a, na = tt.randn((0xabc, pos, n, 1), pos, n, dtype=dtype)
+            b, nb = tt.randn((0xabc, pos, n, 1), pos, n, dtype=dtype, device="cuda")
+            assert na == nb
+            assert torch.allclose(a.double(), b.cpu().double(), rtol=1e-5 if dtype == torch.float32 else 1e-11,
+                                  atol=1e-6 if dtype == torch.float32 else 1e-12), (dtype, pos, n)
+
+
+@CUDA
+@pytest.mark.parametrize("r", [3, 2**32 - 1, 2**40])
+def test_cuda_randint_equals_cpu(r):
+    for pos in (0, 33, 1000):
+        for n in (0, 1, 7, 1001, 2**16 + 3):
+            a, na = tt.randint((0xabc, pos, n, 1), pos, 0, r, n)
+            b, nb = tt.randint((0xabc, pos, n, 1), pos, 0, r, n, device="cuda")
+            assert na == nb and torch.equal(a, b.cpu()), (r, pos, n)
 
 
 @CUDA

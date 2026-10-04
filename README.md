@@ -22,7 +22,7 @@ t = Tandem(42)                                   # the spec's stream for seed 42
 u = t.rand(1_000_000)                            # float64 in [0, 1), 53 random bits
 f = t.rand(1 << 20, dtype=torch.float32, device="cuda")
 w = t.bits(1 << 20, dtype=torch.uint32)          # stream words
-z = t.randn(1000)                                # inverse CDF of one float64 uniform each
+z = t.randn(1000)                                # Box-Muller, two float64 uniforms each
 b = t.randbool(100)
 i = t.randint(-5, 5, (4, 4))                     # int64 on [-5, 5), Lemire, same values on CUDA
 p = t.randperm(10)                               # Fisher-Yates, defined on the CPU
@@ -44,8 +44,14 @@ reinterpreted, `float16` (`(raw >> 5) * 2^-11`), `float32` (24 random bits) and 
 (53 random bits), and `complex64` and `complex128`, whose element is the real then the
 imaginary component as in the specification. `bfloat16` is a tandem-torch extension that is not in
 the specification: `(raw16 >> 8) * 2^-8` of a 16-bit word, the float16 rule with 8 fraction
-bits. `randn` is tandem-torch's own convention: `erfinv` of one float64 uniform
-shifted by half an ulp into `(0, 1)`, so it consumes 64 stream bits per normal and is finite.
+bits.
+
+`randn` is Box-Muller as in tandem-cuda's `Rng::normal` and `Rng::normalf`, not part of the
+specification. A float64 normal is made from two float64 uniforms, 128 stream bits, a float32
+normal from two float32 uniforms, 64 bits, in float arithmetic (`tandem_fill_normal_f64` and
+`_f32` on CPU, `tandem::fill_normal_f64` and `_f32` on CUDA). Library `log` and `cos` differ in
+the last bits, so devices agree to a few ulps and not bit for bit. `float16` and `bfloat16`
+round the float32 normal.
 
 `randint(low, high, size, dtype=torch.int64, device="cpu")` draws on `[low, high)`. A range of
 at most 2^32 takes one 32-bit draw per element (`tandem_fill_u32_below` on CPU,
@@ -83,8 +89,8 @@ a Linux GPU environment with nvcc 12.8 from conda-forge and PyTorch's cu128 whee
 of the spec repository's file) and compares fills from several offsets with reference stream dumps in `tests/data`. With a CUDA device the suite also compares
 CUDA fills with CPU fills for every dtype, four chunk lengths, fourteen positions and nine
 lengths, and on storage that is not 16-byte aligned. `tests/cross.json`, made by
-`tools/cross_json.py` from the cross-check headers of the submodules, pins the bounded fills to
-the values of tandem-c and tandem-cuda on both devices. CI runs the CPU tests on Linux and
+`tools/cross_json.py` from the cross-check headers of the submodules, pins the bounded fills and the
+normals to the values of tandem-c and tandem-cuda on both devices. CI runs the CPU tests on Linux and
 macOS and fails when the vectors drift from upstream or a submodule pin is not on its
 upstream main. `tools/bump.sh` moves the pins to the latest main. The CUDA tests run by hand
 on a GPU host.
