@@ -1,27 +1,41 @@
-# tandem-torch notes
+# API
 
-Material moved out of the README.
+```python
+import torch
+from tandem_torch import Tandem
 
-## Overview
+t = Tandem(42)                                   # the spec's stream for seed 42
+u = t.rand(1_000_000)                            # float64 in [0, 1), 53 random bits
+f = t.rand(1 << 20, dtype=torch.float32, device="cuda")
+w = t.bits(1 << 20, dtype=torch.uint32)          # stream words
+z = t.randn(1000)                                # Box-Muller, two float64 uniforms each
+e = t.exponential(1000)                          # -log(1 - u), one float64 uniform each
+b = t.randbool(100)
+i = t.randint(-5, 5, (4, 4))                     # int64 on [-5, 5), Lemire, same values on CUDA
+p = t.randperm(10)                               # Fisher-Yates, defined on the CPU
+x = t.shuffle(torch.arange(12).view(3, 4), dim=1)
+t.fill_(torch.empty(4096, dtype=torch.float16))  # fill in place, any supported dtype
+x = t.at(torch.float32, 1000)                    # element 1000 of the next float32 fill, no advance
+worker = t.split(7)                              # by index, from the key alone
+kids = t.fork(4)                                 # from the current block, parent moves on
+t.key, t.position, t.chunk_length                # transport form
+s = t.get_state(); t.set_state(s)                # as on torch.Generator, also manual_seed
+```
 
-This is not a `torch.Generator`. That class is final and its RNG hooks are internal to
-PyTorch, so no third-party generator can drive `torch.rand`. `tandem_torch` fills tensors
-through its own functions instead, which is also what makes the stream reproducible across
-languages and devices.
+- `Tandem(seed)`, `Tandem.from_key(key, position, K)`: the generator, with `key`, `position`
+  and `chunk_length`. `get_state`, `set_state` and `manual_seed` as on `torch.Generator`.
+- `rand`, `bits`, `randbool`, `fill_`: `bool`, `uint8` to `uint64`, signed integers, `float16`,
+  `float32`, `float64`, `complex64` and `complex128`.
+- `rand` with `bfloat16`: an extension, `(raw16 >> 8) * 2^-8`, not in the specification.
+- `randint(low, high, size, dtype, device, out=)`: Lemire's method, same values on CUDA.
+- `randn(*shape, out=)`: Box-Muller from tandem-cuda. Bit exact except CUDA float32, within 16 ulps.
+- `exponential(*shape, out=)`: `-log(1 - u)` as tandem-c, bit exact on CPU and CUDA.
+- `randperm(n)`, `shuffle(x, dim)`: Fisher-Yates, defined on the CPU, `n < 2^32`.
+- `at(dtype, i)`: element `i` of the next fill without advancing, for 32 and 64-bit types.
+- `split(index)`, `fork(n)`, `sub(purpose)`: child generators.
+- Parallel use: ranks that start at the position of their first element reproduce a serial run.
 
-## Install
-
-The reference sources sit in the `external/tandem-c` and `external/tandem-cuda` git
-submodules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init`
-in an existing clone. GitHub's ZIP download omits submodules and does not build.
-
-The build needs a C and C++ compiler. With `nvcc` on the path (or `CUDA_HOME` set) the CUDA
-fills are built too, otherwise CUDA tensors raise. Set `TANDEM_TORCH_CUDA=0` or `1` to force
-the choice. For development, `pixi install` gives a CPU environment, `pixi install -e cuda`
-a Linux GPU environment with nvcc 12.8 from conda-forge and PyTorch's cu128 wheel, and
-`pixi run test` runs the tests.
-
-## What it provides
+Bounded draws, normals, exponentials, `randperm` and `bfloat16` are not in the specification.
 
 Every call aligns the stream position to the element width, reads, and advances, as the
 specification requires, so a `uint8` draw followed by a `float64` draw skips to the next
@@ -75,27 +89,3 @@ position of their first element, or draw from `split(task)`, reproduce a serial 
 decomposition, as
 [Appendix B](https://github.com/tandem-rng/spec/blob/main/SPEC.md#appendix-b-parallel-decomposition-non-normative)
 of the specification shows.
-
-## Tests
-
-`tests/test_tandem.py` checks every vector of the specification (`tests/vectors.json`, a copy
-of the spec repository's file) and compares fills from several offsets with the reference
-stream dumps in `tests/data`, complex types included. It checks `randint`, `randn` and
-`exponential` against
-`tests/cross.json`, which `tools/cross_json.py` makes from the cross-check headers of the
-submodules and which holds the values of tandem-c and tandem-cuda, `randperm` against a
-Python Fisher-Yates over the stream words, `bfloat16` against the 16-bit word fill and `at`
-against fills. With a CUDA device the suite also runs the cross-checks there and compares CUDA
-fills with CPU fills for every dtype, four chunk lengths, fourteen positions and nine lengths,
-and on storage that is not 16-byte aligned. CI runs the CPU tests on Linux and macOS and fails
-when the vectors drift from upstream or a submodule pin is not on its upstream main.
-`tools/bump.sh` moves the pins to the latest main. The CUDA tests run by hand on a GPU host.
-
-## Speed
-
-`randint` and `randn` take `out=` and then write into it, otherwise they allocate. An empty
-`out` takes the requested shape, as in torch. A nonempty `out` of another shape is an error,
-since torch deprecates resizing it. On CUDA,
-`randint` into int32, uint32, int64 or uint64 adds the low bound and widens inside the bounded
-kernel (`tandem::fill_u32_below` and `fill_u64_below` with a low bound), so there is no second
-pass over the output. Other dtypes, and a range of exactly 2^32 or 2^64, take the unfused path.
