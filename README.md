@@ -27,7 +27,7 @@ Full notes on dtypes, normals, bounded draws, tests and speed: [docs/notes.md](d
 import torch
 from tandem_torch import Tandem
 
-t = Tandem(42)                                   # the spec's stream for seed 42     
+t = Tandem(42)                                   # the spec's stream for seed 42
 u = t.rand(1_000_000)                            # float64 in [0, 1), 53 random bits
 f = t.rand(1 << 20, dtype=torch.float32, device="cuda")
 w = t.bits(1 << 20, dtype=torch.uint32)          # stream words
