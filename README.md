@@ -124,7 +124,3 @@ code.
 ## License
 
 Apache License 2.0. See `LICENSE` and `NOTICE`.
-
-## License
-
-Apache License 2.0. See `LICENSE` and `NOTICE`.
