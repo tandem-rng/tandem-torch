@@ -24,6 +24,9 @@ f = t.rand(1 << 20, dtype=torch.float32, device="cuda")
 w = t.bits(1 << 20, dtype=torch.uint32)          # stream words
 z = t.randn(1000)                                # inverse CDF of one float64 uniform each
 b = t.randbool(100)
+i = t.randint(-5, 5, (4, 4))                     # int64 on [-5, 5), Lemire, same values on CUDA
+p = t.randperm(10)                               # Fisher-Yates, defined on the CPU
+x = t.shuffle(torch.arange(12).view(3, 4), dim=1)
 t.fill_(torch.empty(4096, dtype=torch.float16))  # fill in place, any supported dtype
 worker = t.split(7)                              # by index, from the key alone
 kids = t.fork(4)                                 # from the current block, parent moves on
@@ -43,6 +46,15 @@ imaginary component as in the specification. `bfloat16` is a tandem-torch extens
 the specification: `(raw16 >> 8) * 2^-8` of a 16-bit word, the float16 rule with 8 fraction
 bits. `randn` is tandem-torch's own convention: `erfinv` of one float64 uniform
 shifted by half an ulp into `(0, 1)`, so it consumes 64 stream bits per normal and is finite.
+
+`randint(low, high, size, dtype=torch.int64, device="cpu")` draws on `[low, high)`. A range of
+at most 2^32 takes one 32-bit draw per element (`tandem_fill_u32_below` on CPU,
+`tandem::fill_u32_below` on CUDA), a larger range one 64-bit draw. Both use Lemire's method and
+a rejected draw retries on a fallback stream, so CPU and CUDA give the same values and every
+element consumes exactly one draw. `randperm(n)` is Fisher-Yates from the end with one
+sequential scalar bounded draw per swap, `tandem_u32_below` over the stream, so the CPU
+defines it and a CUDA result is copied from there. `shuffle(x, dim=0)` indexes `x` with a
+`randperm`. None of these is in the specification, and `randperm` needs `n < 2^32`.
 
 On CUDA, 32-bit and 64-bit types go straight to the tile kernel. Narrower types
 and `bool` come from a word fill over the same stream bytes, since the stream is one byte
@@ -70,7 +82,9 @@ a Linux GPU environment with nvcc 12.8 from conda-forge and PyTorch's cu128 whee
 `tests/test_tandem.py` checks every vector of the specification (`tests/vectors.json`, a copy
 of the spec repository's file) and compares fills from several offsets with reference stream dumps in `tests/data`. With a CUDA device the suite also compares
 CUDA fills with CPU fills for every dtype, four chunk lengths, fourteen positions and nine
-lengths, and on storage that is not 16-byte aligned. CI runs the CPU tests on Linux and
+lengths, and on storage that is not 16-byte aligned. `tests/cross.json`, made by
+`tools/cross_json.py` from the cross-check headers of the submodules, pins the bounded fills to
+the values of tandem-c and tandem-cuda on both devices. CI runs the CPU tests on Linux and
 macOS and fails when the vectors drift from upstream or a submodule pin is not on its
 upstream main. `tools/bump.sh` moves the pins to the latest main. The CUDA tests run by hand
 on a GPU host.

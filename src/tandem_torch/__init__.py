@@ -13,7 +13,7 @@ import torch
 
 from . import _ext
 
-__all__ = ["Tandem", "rand", "bits", "has_cuda"]
+__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "has_cuda"]
 
 has_cuda = _ext.has_cuda
 
@@ -27,6 +27,7 @@ _BITS = {
 }
 _FLOATS = (torch.float16, torch.bfloat16, torch.float32, torch.float64)
 _COMPLEX = (torch.complex64, torch.complex128)
+_INTS = tuple(d for d in _BITS if d not in _FLOATS + _COMPLEX + (torch.bool,))
 _U = {8: torch.uint8, 16: torch.uint16, 32: torch.uint32, 64: torch.uint64}
 
 
@@ -126,6 +127,53 @@ def bits(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     return t, _fill(t, _check_key(key), position, K)
 
 
+def _below(key, pos, K, r, n, device):
+    """n draws below r, as uint32 (r <= 2^32) or uint64 (r <= 2^64) values. The raw word fill
+    is the draw below 2^32 or 2^64, so those two ranges take no rejection."""
+    wide = r > 2**32
+    d = torch.empty(n, dtype=torch.uint64 if wide else torch.uint32, device=device)
+    if r == 2**32 or r == 2**64:
+        return d, _fill(d, key, pos, K)
+    if torch.device(device).type == "cpu":
+        return d, _ext.fill_below_cpu(d, key, pos, K, r)
+    if not has_cuda:
+        raise RuntimeError("tandem_torch was built without CUDA support")
+    return d, _ext.fill_below_cuda(d, key, pos, K, r)
+
+
+def randint(key, position, low, high, size, *, dtype=torch.int64, device="cpu", K=32):
+    """Integers uniform on ``[low, high)`` by Lemire's method, as ``tandem::fill_u32_below``
+    when the range is at most 2^32 and ``fill_u64_below`` above. Each element consumes one
+    32-bit or 64-bit draw, a rejected draw retries on a fallback stream, and CPU and CUDA give
+    the same values. Not part of the specification. Returns ``(tensor, next_position)``."""
+    if dtype not in _INTS:
+        raise TypeError(f"unsupported dtype {dtype} for randint")
+    low, high = int(low), int(high)
+    info = torch.iinfo(dtype)
+    if not info.min <= low < high <= info.max + 1:
+        raise ValueError(f"need {info.min} <= low < high <= {info.max + 1} for {dtype}")
+    shape = (size,) if isinstance(size, int) else tuple(size)
+    d, nxt = _below(_check_key(key), position, K, high - low, math.prod(shape), device)
+    # Wrapping int64 addition gives the right value mod 2^64, which is exact once it fits dtype.
+    t = d.to(torch.int64) if d.dtype == torch.uint32 else d.view(torch.int64)
+    t.add_(((low + 2**63) % 2**64) - 2**63)
+    t = t.view(torch.uint64) if dtype == torch.uint64 else t.to(dtype)
+    return t.view(shape), nxt
+
+
+def randperm(key, position, n, *, dtype=torch.int64, device="cpu", K=32):
+    """A uniform permutation of ``range(n)`` by Fisher-Yates from the end: for i = n-1 down to
+    1, swap element i with element j, where j is a scalar draw below i + 1 (Lemire, one draw
+    after another, a rejected draw discarded). The CPU defines the permutation and a CUDA result
+    is copied there. Not part of the specification. Returns ``(tensor, next_position)``."""
+    if dtype not in _INTS:
+        raise TypeError(f"unsupported dtype {dtype} for randperm")
+    if n > torch.iinfo(dtype).max + 1:
+        raise ValueError(f"n does not fit {dtype}")
+    perm, nxt = _ext.randperm_cpu(int(n), _check_key(key), position, K)
+    return perm.to(dtype=dtype, device=device), nxt
+
+
 class Tandem:
     """A Tandem8x32 generator: key, chunk length and the stream position of the next draw.
 
@@ -187,6 +235,22 @@ class Tandem:
     def randbool(self, *shape, device="cpu", out=None):
         """One stream bit per element."""
         return self.bits(*shape, dtype=torch.bool, device=device, out=out)
+
+    def randint(self, low, high, size, *, dtype=torch.int64, device="cpu"):
+        """Integers uniform on ``[low, high)``, see :func:`randint`."""
+        t, self.position = randint(self.key, self.position, low, high, size, dtype=dtype,
+                                   device=device, K=self.chunk_length)
+        return t
+
+    def randperm(self, n, *, dtype=torch.int64, device="cpu"):
+        """A uniform permutation of ``range(n)``, see :func:`randperm`."""
+        t, self.position = randperm(self.key, self.position, n, dtype=dtype, device=device,
+                                    K=self.chunk_length)
+        return t
+
+    def shuffle(self, x, dim=0):
+        """``x`` with its entries along ``dim`` in a random order, as a new tensor."""
+        return x.index_select(dim, self.randperm(x.shape[dim], device=x.device))
 
     def randn(self, *shape, dtype=torch.float64, device="cpu"):
         """Standard normal draws by the inverse CDF of one float64 uniform each. This is

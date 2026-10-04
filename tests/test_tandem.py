@@ -12,6 +12,7 @@ import tandem_torch as tt
 
 HERE = Path(__file__).parent
 VEC = json.loads((HERE / "vectors.json").read_text())
+CROSS = json.loads((HERE / "cross.json").read_text())
 KEY = tuple(int(w, 16) for w in VEC["key"])
 K = VEC["K"]
 CUDA = pytest.mark.skipif(not (torch.cuda.is_available() and tt.has_cuda), reason="no CUDA")
@@ -211,6 +212,99 @@ def test_argument_errors():
 
 def test_entropy_seeds_differ():
     assert tt.Tandem().key != tt.Tandem().key
+
+
+# ---- Bounded integers --------------------------------------------------------------------
+
+
+def below(device, key, pos, r, n, wide):
+    out = torch.empty(n, dtype=torch.uint64 if wide else torch.uint32, device=device)
+    nxt = (tt._ext.fill_below_cuda if device == "cuda" else tt._ext.fill_below_cpu)(out, key, pos, 32, r)
+    return out.cpu().tolist(), nxt
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_bounded_fills_match_the_other_ports(device):
+    """Rows of tandem-c and tandem-cuda, from tools/cross_json.py. The 2^31 + 1 rows reject
+    often, so the fallback stream is exercised."""
+    key = tt.Tandem(42).key
+    assert tuple(CROSS["cuda_key"]) == key
+    for wide, rows in ((False, CROSS["c_fill_below32"]), (True, CROSS["c_fill_below64"])):
+        for row in rows:
+            got, nxt = below(device, key, 1, row["range"], 64, wide)
+            assert got == row["out"], (wide, row["range"])
+            assert nxt == row["end_pos"]
+    for wide, rows in ((False, CROSS["cuda_below32"]), (True, CROSS["cuda_below64"])):
+        for row in rows:
+            got, nxt = below(device, key, 0, row["range"], 64, wide)
+            assert got == row["out"], (wide, row["range"])
+            assert nxt == 64 * (64 if wide else 32)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_randint_ranges_and_widths(device):
+    key = tt.Tandem(42).key
+    got, nxt = tt.randint(key, 0, -5, 5, 40, device=device)
+    want, _ = below(device, key, 0, 10, 40, False)
+    assert got.dtype == torch.int64 and got.cpu().tolist() == [x - 5 for x in want] and nxt == 40 * 32
+    # Above 2^32 the 64-bit fill draws, with the offset applied in wrapping arithmetic.
+    lo, hi = 2**63, 2**63 + 2**40
+    got, nxt = tt.randint(key, 0, lo, hi, (4, 5), dtype=torch.uint64, device=device)
+    want, _ = below(device, key, 0, 2**40, 20, True)
+    assert got.shape == (4, 5)
+    assert [x % 2**64 for x in got.flatten().cpu().view(torch.int64).tolist()] == [lo + x for x in want]
+    assert nxt == 20 * 64
+    # The full 32-bit and 64-bit ranges are the raw words plus the offset.
+    got, _ = tt.randint(key, 0, 0, 2**32, 9, dtype=torch.uint32, device=device)
+    assert torch.equal(got.cpu(), tt.bits(key, 0, 9, dtype=torch.uint32)[0])
+    got, _ = tt.randint(key, 0, -2**63, 2**63, 9, device=device)
+    assert torch.equal(got.cpu(), tt.bits(key, 0, 9, dtype=torch.int64)[0] + (-2**63))
+
+
+def test_randint_dtype_bounds():
+    t = tt.Tandem(1)
+    x = t.randint(-128, 128, 1000, dtype=torch.int8)
+    assert x.dtype == torch.int8 and x.min() < -100 and x.max() > 100
+    with pytest.raises(ValueError):
+        t.randint(0, 256, 3, dtype=torch.int8)
+    with pytest.raises(ValueError):
+        t.randint(4, 4, 3)
+
+
+def lemire(words, n):
+    """One scalar draw below n over an iterator of 32-bit stream words, as tandem_u32_below."""
+    while True:
+        m = next(words) * n
+        if m & 0xffffffff >= (2**32 - n) % n:
+            return m >> 32
+
+
+def test_randperm_is_fisher_yates_over_scalar_draws():
+    n = 200
+    used = 0
+
+    def stream():
+        nonlocal used
+        for w in tt.Tandem(11).bits(100_000, dtype=torch.uint32).tolist():
+            used += 1
+            yield w
+
+    words = stream()
+    want = list(range(n))
+    for i in range(n - 1, 0, -1):
+        j = lemire(words, i + 1)
+        want[i], want[j] = want[j], want[i]
+    t = tt.Tandem(11)
+    assert t.randperm(n).tolist() == want
+    assert t.position == 32 * used
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_shuffle_permutes_along_dim(device):
+    x = torch.arange(24, device=device).view(4, 6)
+    y = tt.Tandem(2).shuffle(x, dim=1)
+    perm = tt.Tandem(2).randperm(6)
+    assert torch.equal(y.cpu(), x.cpu()[:, perm])
 
 
 # ---- CUDA agrees with the CPU ------------------------------------------------------------

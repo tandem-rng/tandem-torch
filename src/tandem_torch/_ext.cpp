@@ -4,6 +4,8 @@
 #include <array>
 #include <cstdint>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 extern "C" {
 #include "tandem.h"
@@ -51,6 +53,38 @@ uint64_t fill_cpu(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) {
     return tandem_position(&rng);
 }
 
+/* Bounded fill of a uint32 or uint64 tensor: element i is draw i of the fill below `range`.
+ * Rejected draws retry on a fallback stream, so the values equal the CUDA fill. */
+uint64_t fill_below_cpu(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range) {
+    TORCH_CHECK(out.device().is_cpu() && out.is_contiguous(), "fill_below_cpu: need a contiguous CPU tensor");
+    tandem_rng rng = make(key, pos, K);
+    size_t n = (size_t)out.numel();
+    switch (out.scalar_type()) {
+    case torch::kUInt32:
+        TORCH_CHECK(range <= UINT32_MAX, "fill_below_cpu: range does not fit 32 bits");
+        tandem_fill_u32_below(&rng, static_cast<uint32_t *>(out.data_ptr()), n, (uint32_t)range);
+        break;
+    case torch::kUInt64: tandem_fill_u64_below(&rng, static_cast<uint64_t *>(out.data_ptr()), n, range); break;
+    default: TORCH_CHECK(false, "fill_below_cpu: dtype must be uint32 or uint64");
+    }
+    return tandem_position(&rng);
+}
+
+/* Fisher-Yates from the end with one sequential scalar bounded draw per step. The scalar draw
+ * rejects by discarding, so the position after the shuffle depends on the draws. */
+std::pair<torch::Tensor, uint64_t> randperm_cpu(int64_t n, const Key &key, uint64_t pos, uint32_t K) {
+    TORCH_CHECK(n >= 0 && n <= (int64_t)UINT32_MAX, "randperm_cpu: n must be in [0, 2^32 - 1]");
+    tandem_rng rng = make(key, pos, K);
+    torch::Tensor out = torch::empty({n}, torch::kInt64);
+    int64_t *p = out.data_ptr<int64_t>();
+    for (int64_t i = 0; i < n; i++) p[i] = i;
+    for (int64_t i = n - 1; i > 0; i--) {
+        int64_t j = tandem_u32_below(&rng, (uint32_t)(i + 1));
+        std::swap(p[i], p[j]);
+    }
+    return {out, tandem_position(&rng)};
+}
+
 Key seed_key(uint64_t lo, uint64_t hi) {
     return key_of(tandem_seed(lo, hi, 0));
 }
@@ -80,16 +114,20 @@ std::pair<std::vector<Key>, uint64_t> fork_keys(const Key &key, uint64_t pos, ui
 
 #ifdef TANDEM_TORCH_CUDA
 uint64_t fill_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K);
+uint64_t fill_below_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range);
 #endif
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fill_cpu", &fill_cpu);
+    m.def("fill_below_cpu", &fill_below_cpu);
+    m.def("randperm_cpu", &randperm_cpu);
     m.def("seed", &seed_key);
     m.def("split", &split_key);
     m.def("sub", &sub_key);
     m.def("fork", &fork_keys);
 #ifdef TANDEM_TORCH_CUDA
     m.def("fill_cuda", &fill_cuda);
+    m.def("fill_below_cuda", &fill_below_cuda);
     m.attr("has_cuda") = true;
 #else
     m.attr("has_cuda") = false;

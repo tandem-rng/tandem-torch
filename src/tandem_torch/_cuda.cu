@@ -35,3 +35,23 @@ uint64_t fill_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) 
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return next;
 }
+
+uint64_t fill_below_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range) {
+    TORCH_CHECK(out.device().is_cuda() && out.is_contiguous(), "fill_below_cuda: need a contiguous CUDA tensor");
+    c10::cuda::CUDAGuard guard(out.device());
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    size_t n = (size_t)out.numel();
+    uint64_t next;
+    switch (out.scalar_type()) {
+    case torch::kUInt32:
+        TORCH_CHECK(range <= UINT32_MAX, "fill_below_cuda: range does not fit 32 bits");
+        next = tandem::fill_u32_below(key.data(), pos, K, (uint32_t)range, static_cast<uint32_t *>(out.data_ptr()), n, stream);
+        break;
+    case torch::kUInt64:
+        next = tandem::fill_u64_below(key.data(), pos, K, range, static_cast<uint64_t *>(out.data_ptr()), n, stream);
+        break;
+    default: TORCH_CHECK(false, "fill_below_cuda: dtype must be uint32 or uint64");
+    }
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return next;
+}
