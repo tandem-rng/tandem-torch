@@ -98,6 +98,15 @@ The CPU path is the C row engine, the CUDA path is the shared-memory tile kernel
 elements the tile reads a little below its 2^28 rate because launch and clock ramp are a
 larger share of the time.
 
+## AI assistance
+
+This port was written with the help of large language models under human
+direction. The design and the specification are human work, as is much of the
+Julia implementation. The code is tested bit for bit against every vector of
+the specification and against long stream dumps from the Julia implementation,
+and every value must match. The output does not depend on who or what wrote the
+code.
+
 ## License
 
 Apache License 2.0. See `LICENSE` and `NOTICE`.
