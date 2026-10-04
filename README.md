@@ -19,6 +19,8 @@ The build needs a C and C++ compiler, and builds the CUDA fills when `nvcc` is o
 `external/tandem-c` (2b6e075) and `external/tandem-cuda` (b65745a) hold the reference sources.
 `pixi install` gives a CPU environment, `pixi install -e cuda` a Linux GPU environment.
 
+Full notes on dtypes, normals, bounded draws, tests and speed: [docs/notes.md](docs/notes.md).
+
 ## Use
 
 ```python
