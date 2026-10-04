@@ -191,16 +191,20 @@ def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=
 
 
 def randn(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
-    """Standard normals by Box-Muller, as ``tandem_fill_normal_f64`` and ``_f32`` on CPU and
-    ``tandem::fill_normal_f64`` and ``_f32`` on CUDA. Elements 2j and 2j + 1 are the cos and sin
-    halves of one step from the uniforms 2j and 2j + 1 of the plain float fill, so an odd count
-    still consumes both uniforms of its last pair. A float64 normal pair takes 128 stream bits
-    and a float32 pair 64, in float arithmetic. Float64 normals on both devices and float32
-    normals on the CPU equal tandem-c bit for bit. CUDA float32 normals use the fast sincos and
-    agree to 16 ulps. Other float dtypes round the float32 normal. An
-    empty fill leaves the position alone. A contiguous float32 or float64 ``out`` is filled in
-    place. Not part of the specification. Returns
-    ``(tensor, next_position)``."""
+    """Standard normals of Appendix A of the specification, as ``tandem_fill_normal_f64`` and
+    ``_f32`` on CPU and ``tandem::fill_normal_f64`` and ``_f32`` on CUDA.
+
+    float64: the 1024-layer ziggurat, element i from 64-bit draw i. A draw outside the inner
+    rectangles continues on a fallback stream keyed by its global draw index. An empty fill
+    aligns the position to 64. Bit exact with tandem-c on both devices.
+
+    float32: Box-Muller, elements 2j and 2j + 1 are the cos and sin halves from the float32
+    uniforms 2j and 2j + 1, so an odd count still consumes both uniforms of its last pair. An
+    empty fill leaves the position alone. Bit exact with tandem-c on the CPU. CUDA uses the fast
+    sincos and agrees to 16 ulps.
+
+    Other float dtypes round the float32 normal. A contiguous float32 or float64 ``out`` is
+    filled in place. Returns ``(tensor, next_position)``."""
     return _float_fill("normal", key, position, shape, dtype, device, K, out)
 
 
@@ -365,7 +369,7 @@ class Tandem:
         return x.index_select(dim, self.randperm(x.shape[dim], device=x.device))
 
     def randn(self, *shape, dtype=None, device="cpu", out=None):
-        """Standard normal draws by Box-Muller, see :func:`randn`."""
+        """Standard normal draws, see :func:`randn`."""
         t, self.position = randn(self.key, self.position, *shape, dtype=dtype, device=device,
                                  K=self.chunk_length, out=out)
         return t

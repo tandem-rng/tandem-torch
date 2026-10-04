@@ -38,6 +38,13 @@ def normal_rows(text, name):
     return rows
 
 
+def c_float_rows(text, name):
+    """Rows {start, {values}, end_pos} of a tandem-c floating-point table."""
+    body = re.search(rf"{name}\[\] = \{{(.*?)\n\}};", text, re.S).group(1)
+    return [{"start": int(s), "out": [float(x) for x in re.findall(r"[-+0-9.e]+", out)], "end_pos": int(e)}
+            for s, out, e in re.findall(r"\{(\d+)ull,\s*\{(.*?)\},\s*(\d+)u\}", body, re.S)]
+
+
 def floats(text, name, ctype):
     body = re.search(rf"{ctype} {name}\[2 \* CROSS_NORMAL_COUNT\] = \{{(.*?)\}};", text, re.S).group(1)
     return [float(x.rstrip("f")) for x in re.findall(r"[-+0-9.e]+f?", body)]
@@ -63,9 +70,9 @@ out = {
     "cuda_normal32": normal_rows(cuda_normal, "CROSS_NORMAL32"),
     "cuda_exp64": normal_rows(cuda_exp, "CROSS_EXP64"),
     "cuda_exp32": normal_rows(cuda_exp, "CROSS_EXP32"),
-    # Pairs after one bool from seed 42: element 2i is the cos half, 2i + 1 the sin half.
-    "normal_f64": floats(normal, "CROSS_NORMAL", "double"),
-    "normal_f64_end_pos": int(re.search(r"CROSS_NORMAL_END_POS = (\d+)u", normal).group(1)),
+    # Ziggurat fills of seed 42 from the position `start` of each row.
+    "normal_f64": c_float_rows(normal, "CROSS_NORMAL"),
+    # Box-Muller pairs after one bool from seed 42: element 2i is the cos half, 2i + 1 the sin half.
     "normal_f32": floats(normal, "CROSS_NORMALF", "float"),
     "normal_f32_end_pos": int(re.search(r"CROSS_NORMALF_END_POS = (\d+)u", normal).group(1)),
 }

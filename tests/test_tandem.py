@@ -183,13 +183,18 @@ def test_shapes_and_out():
     assert torch.equal(nc.flatten(), tt.Tandem(5).rand(12, dtype=torch.float32))
 
 
-@pytest.mark.parametrize("device", DEVICES)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_randn_moments(device, dtype):
-    z = tt.Tandem(9).randn(200_000, dtype=dtype, device=device)
-    assert z.dtype == dtype and torch.isfinite(z).all()
-    assert abs(z.mean().item()) < 0.01
-    assert abs(z.std().item() - 1) < 0.01
+def test_randn_is_standard_normal(dtype):
+    """Raw moments 0, 1, 0, 3 within 5 standard errors, and the Kolmogorov-Smirnov distance
+    below its 0.1 % critical value, on 1e7 draws."""
+    n = 10**7
+    z = tt.Tandem(9).randn(n, dtype=dtype).double()
+    for k, (m, var) in enumerate(((0, 1), (1, 2), (0, 15), (3, 96)), 1):
+        assert abs((z**k).mean().item() - m) < 5 * (var / n) ** 0.5, k
+    cdf = torch.special.ndtr(z.sort().values)
+    i = torch.arange(1, n + 1, dtype=torch.float64)
+    d = torch.maximum(i / n - cdf, cdf - (i - 1) / n).max().item()
+    assert d < 1.95 / n**0.5
 
 
 def same_normals(got, want):
@@ -203,32 +208,51 @@ def same_normals(got, want):
 
 @pytest.mark.parametrize("device", DEVICES)
 def test_randn_matches_the_other_ports(device):
-    """The pairs of tandem-c's Box-Muller after one bool, and tandem-cuda's fills from the key
-    of seed 42 at several positions, odd counts included."""
-    for dtype, want, end in ((torch.float64, CROSS["normal_f64"], CROSS["normal_f64_end_pos"]),
-                             (torch.float32, CROSS["normal_f32"], CROSS["normal_f32_end_pos"])):
-        t = tt.Tandem(42)
-        t.randbool(1)
-        assert same_normals(t.randn(len(want), dtype=dtype, device=device), want), dtype
-        assert t.position == end
+    """tandem-c's float64 ziggurat rows of seed 42, its float32 Box-Muller pairs after one bool,
+    and tandem-cuda's fills from the key of seed 42 at several positions, odd counts included."""
+    key = tt.Tandem(42).key
+    for row in CROSS["normal_f64"]:
+        z, nxt = tt.randn(key, row["start"], len(row["out"]), dtype=torch.float64, device=device)
+        assert same_normals(z, row["out"]) and nxt == row["end_pos"], row["start"]
+    t = tt.Tandem(42)
+    t.randbool(1)
+    assert same_normals(t.randn(len(CROSS["normal_f32"]), dtype=torch.float32, device=device), CROSS["normal_f32"])
+    assert t.position == CROSS["normal_f32_end_pos"]
     key = tuple(CROSS["cuda_key"])
-    for dtype, rows, w in ((torch.float64, CROSS["cuda_normal64"], 64), (torch.float32, CROSS["cuda_normal32"], 32)):
-        for row in rows:
-            z, nxt = tt.randn(key, row["pos"], row["n"], dtype=dtype, device=device)
-            assert same_normals(z, row["out"]), (dtype, row["pos"])
-            assert nxt == -(-row["pos"] // w) * w + (row["n"] + 1) // 2 * 2 * w
+    for row in CROSS["cuda_normal64"]:
+        z, nxt = tt.randn(key, row["pos"], row["n"], dtype=torch.float64, device=device)
+        assert same_normals(z, row["out"]) and nxt == -(-row["pos"] // 64) * 64 + row["n"] * 64, row["pos"]
+    for row in CROSS["cuda_normal32"]:
+        z, nxt = tt.randn(key, row["pos"], row["n"], dtype=torch.float32, device=device)
+        assert same_normals(z, row["out"]), row["pos"]
+        assert nxt == -(-row["pos"] // 32) * 32 + (row["n"] + 1) // 2 * 64
 
 
-def test_randn_bits_match_tandem_c():
-    """The bytes of tandem-c's tools/dump_normals.c: 2e6 - 1 float64 then float32 normals from
-    five positions. tandem-c records their FNV-1a hash 0x9414e1315e2653be, this test SHA-256."""
-    h = hashlib.sha256()
+@pytest.mark.parametrize("device", DEVICES)
+def test_randn_bits_match_tandem_c(device):
+    """The fills of tandem-c's tests/test_normal_bits.c from five positions: 1e6 float64, the
+    bytes of tools/dump_normals.c with tandem-c's recorded SHA-256, and 2e6 - 1 float32, whose
+    bytes have tandem-c's FNV-1a 0xaa1ea656ce73a4fb. CUDA float32 uses the fast sincos, so only
+    the CPU checks it."""
+    h64, h32 = hashlib.sha256(), hashlib.sha256()
     key = tt.Tandem(2026 + (7 << 64)).key
     for start in (0, 1, 77, 12345, 1 << 30):
-        z, nxt = tt.randn(key, start, 2_000_000 - 1)
-        h.update(z.numpy().tobytes())
-        h.update(tt.randn(key, nxt, 2_000_000 - 1, dtype=torch.float32)[0].numpy().tobytes())
-    assert h.hexdigest() == "cfae418807a7d5f91ecd3e42c33a00943690c6e4b888ee39206738783efe9ded"
+        h64.update(tt.randn(key, start, 1_000_000, device=device)[0].cpu().numpy().tobytes())
+        h32.update(tt.randn(key, start, 2_000_000 - 1, dtype=torch.float32)[0].numpy().tobytes())
+    assert h64.hexdigest() == "700ec4d2f4d6b82aaa56c6eff18a4e5919585fdbd093988773383d580ea610d1"
+    assert h32.hexdigest() == "1550af62ffa8deaa44853976a037e91d543d85e8ac844925b27e2cf4488d7c7e"
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_randn_float64_cut_at_any_element_equals_the_whole_fill(device):
+    """Element i comes from 64-bit draw i, and a draw outside the inner rectangles uses a
+    fallback stream keyed by its global draw index. 3000 draws hold about 13 such draws."""
+    key, n = tt.Tandem(7).key, 3000
+    whole, end = tt.randn(key, 37, n, dtype=torch.float64, device=device)
+    for cut in (1, 2, 33, 1000, 2999):
+        a, mid = tt.randn(key, 37, cut, dtype=torch.float64, device=device)
+        b, end2 = tt.randn(key, mid, n - cut, dtype=torch.float64, device=device)
+        assert torch.equal(torch.cat([a, b]), whole) and end2 == end, cut
 
 
 @pytest.mark.parametrize("device", DEVICES)
@@ -282,10 +306,13 @@ def test_exponential_is_exp1(dtype):
 
 
 @pytest.mark.parametrize("device", DEVICES)
-def test_empty_bounded_normal_and_exponential_fills_keep_the_position(device):
+def test_empty_fills_keep_or_align_the_position(device):
+    """An empty float64 normal fill aligns to 64, as section 5 of the specification says for
+    every fill. The other derived fills keep the position."""
     key = tt.Tandem(5).key
+    assert tt.randn(key, 37, 0, dtype=torch.float64, device=device)[1] == 64
+    assert tt.randn(key, 37, 0, dtype=torch.float32, device=device)[1] == 37
     for dtype in (torch.float32, torch.float64):
-        assert tt.randn(key, 37, 0, dtype=dtype, device=device)[1] == 37
         assert tt.exponential(key, 37, 0, dtype=dtype, device=device)[1] == 37
     for r in (3, 2**40):
         assert tt.randint(key, 37, 0, r, 0, device=device)[1] == 37

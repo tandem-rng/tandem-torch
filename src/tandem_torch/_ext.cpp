@@ -71,7 +71,7 @@ uint64_t fill_below_cpu(torch::Tensor out, const Key &key, uint64_t pos, uint32_
     return tandem_position(&rng);
 }
 
-/* Standard normals into a float32 or float64 tensor, the Box-Muller fills of tandem-c. */
+/* Standard normals into a float32 or float64 tensor, the normal fills of tandem-c. */
 uint64_t fill_normal_cpu(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) {
     TORCH_CHECK(out.device().is_cpu() && out.is_contiguous(), "fill_normal_cpu: need a contiguous CPU tensor");
     tandem_rng rng = make(key, pos, K);
