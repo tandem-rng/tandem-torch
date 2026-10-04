@@ -135,8 +135,8 @@ NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 2
 | `torch.randint` int32 `[0, 1000)` | 839 |
 | `Tandem.randint` int32 full range | 1252 |
 | `torch.randint` int32 full range | 332 |
-| `Tandem.randint` int64 `[0, 1000)` | 979 |
-| `torch.randint` int64 `[0, 1000)` | 1295 |
+| `Tandem.randint` int64 `[0, 1000)` | 1331 |
+| `torch.randint` int64 `[0, 1000)` | 1282 |
 | `Tandem.randint` int64 `[-2^62, 2^62)` | 1255 |
 | `torch.randint` int64 `[-2^62, 2^62)` | 621 |
 | `Tandem.randn` float32 `out=` / allocating | 1138 / 1125 |
