@@ -8,6 +8,7 @@ for the same key and position. The CPU path is the reference C implementation, t
 
 import math
 import os
+import struct
 
 import torch
 
@@ -298,6 +299,25 @@ class Tandem:
 
     def __hash__(self):
         return hash((self.key, self.position, self.chunk_length))
+
+    # State, named as on torch.Generator -----------------------------------------------------
+
+    def get_state(self):
+        """The transport form as a uint8 tensor: four key words, the position and K, little
+        endian."""
+        b = struct.pack("<4IQI", *self.key, self.position, self.chunk_length)
+        return torch.frombuffer(bytearray(b), dtype=torch.uint8)
+
+    def set_state(self, state):
+        """Restore a state from :meth:`get_state`. Returns the generator."""
+        *key, position, K = struct.unpack("<4IQI", bytes(state.cpu().to(torch.uint8).tolist()))
+        self.key, self.position, self.chunk_length = tuple(key), _check_position(position), _check_K(K)
+        return self
+
+    def manual_seed(self, seed):
+        """Reseed in place as ``Tandem(seed)`` with the same K. Returns the generator."""
+        self.key, self.position = Tandem(seed, self.chunk_length).key, 0
+        return self
 
     # Draws --------------------------------------------------------------------------------
 

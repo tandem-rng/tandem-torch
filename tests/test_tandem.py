@@ -324,6 +324,18 @@ def test_pickle_and_eq():
     assert repr(t).startswith("Tandem(key=")
 
 
+def test_state_round_trip_and_manual_seed():
+    """A state saved mid-stream resumes the stream, and manual_seed restarts it, as on
+    torch.Generator."""
+    t = tt.Tandem(42, K=8)
+    t.randbool(3)
+    state = t.get_state()
+    want = t.randn(5)
+    u = tt.Tandem(0).set_state(state)
+    assert u == tt.Tandem.from_key(tt.Tandem(42).key, 3, 8) and torch.equal(u.randn(5), want)
+    assert t.manual_seed(42) == tt.Tandem(42, K=8)
+
+
 def test_argument_errors():
     with pytest.raises(ValueError):
         tt.Tandem(-1)

@@ -42,6 +42,7 @@ x = t.at(torch.float32, 1000)                    # element 1000 of the next floa
 worker = t.split(7)                              # by index, from the key alone
 kids = t.fork(4)                                 # from the current block, parent moves on
 t.key, t.position, t.chunk_length                # transport form
+s = t.get_state(); t.set_state(s)                # as on torch.Generator, also manual_seed
 ```
 
 Every call aligns the position to the element width, reads, and advances, as the specification
@@ -51,7 +52,7 @@ requires. The functional forms `tandem_torch.rand(key, position, *shape, ...)` a
 ## What it provides
 
 - `Tandem(seed)`, `Tandem.from_key(key, position, K)`: the generator, with `key`, `position`
-  and `chunk_length`.
+  and `chunk_length`. `get_state`, `set_state` and `manual_seed` as on `torch.Generator`.
 - `rand`, `bits`, `randbool`, `fill_`: `bool`, `uint8` to `uint64`, signed integers, `float16`,
   `float32`, `float64`, `complex64` and `complex128`.
 - `rand` with `bfloat16`: an extension, `(raw16 >> 8) * 2^-8`, not in the specification.
