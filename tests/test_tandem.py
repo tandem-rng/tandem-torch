@@ -291,6 +291,16 @@ def test_empty_bounded_normal_and_exponential_fills_keep_the_position(device):
         assert tt.randint(key, 37, 0, r, 0, device=device)[1] == 37
 
 
+def test_shape_tuples_and_empty_out_as_torch():
+    """A shape passes as varargs or one tuple, and an empty out is resized, as in torch."""
+    assert torch.equal(tt.Tandem(4).randn((3, 4)), tt.Tandem(4).randn(3, 4))
+    for call, args in ((tt.Tandem.rand, (3, 4)), (tt.Tandem.randn, (3, 4)),
+                       (tt.Tandem.randint, (-5, 5, (3, 4)))):
+        out = torch.empty(0, dtype=torch.int64 if call is tt.Tandem.randint else torch.float64)
+        got = call(tt.Tandem(4), *args, out=out)
+        assert got is out and torch.equal(out, call(tt.Tandem(4), *args))
+
+
 def test_randn_rounds_narrow_dtypes_from_float32():
     h = tt.Tandem(4).randn(100, dtype=torch.bfloat16)
     assert torch.equal(h, tt.Tandem(4).randn(100, dtype=torch.float32).to(torch.bfloat16))

@@ -93,7 +93,9 @@ when the vectors drift from upstream or a submodule pin is not on its upstream m
 
 ## Speed
 
-`randint` and `randn` take `out=` and then write into it, otherwise they allocate. On CUDA,
+`randint` and `randn` take `out=` and then write into it, otherwise they allocate. An empty
+`out` takes the requested shape, as in torch. A nonempty `out` of another shape is an error,
+since torch deprecates resizing it. On CUDA,
 `randint` into int32, uint32, int64 or uint64 adds the low bound and widens inside the bounded
 kernel (`tandem::fill_u32_below` and `fill_u64_below` with a low bound), so there is no second
 pass over the output. Other dtypes, and a range of exactly 2^32 or 2^64, take the unfused path.

@@ -68,11 +68,28 @@ def _fill(out, key, pos, K):
     return _ext.fill_cuda(out, key, pos, K)
 
 
+def _shape(shape):
+    """``f(2, 3)`` and ``f((2, 3))`` both mean shape (2, 3), as in torch."""
+    if len(shape) == 1 and not isinstance(shape[0], int):
+        shape = shape[0]
+    return tuple(int(s) for s in shape)
+
+
+def _fit(out, shape):
+    """Resize an empty `out` to `shape` as torch does. torch deprecates resizing a nonempty
+    one, so that is an error here."""
+    if tuple(out.shape) != shape:
+        if out.numel():
+            raise ValueError(f"out has shape {tuple(out.shape)}, not {shape}")
+        out.resize_(shape)
+
+
 def _target(shape, dtype, default, device, out, allowed):
     """The tensor to fill: `out`, whose dtype must fit the call, or a new one."""
+    shape = _shape(shape)
     if out is not None:
-        if shape and tuple(out.shape) != tuple(shape):
-            raise ValueError("out has a different shape")
+        if shape:
+            _fit(out, shape)
         if dtype is not None and out.dtype != dtype:
             raise TypeError("out has a different dtype")
         dtype = out.dtype
@@ -88,14 +105,14 @@ def rand(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     bfloat16 is a tandem-torch extension, ``(raw16 >> 8) * 2^-8``. Returns
     ``(tensor, next_position)``."""
     t = _target(shape, dtype, torch.float64, device, out, lambda d: d in _FLOATS + _COMPLEX)
-    return t, _fill(t, _check_key(key), position, K)
+    return t, _fill(t, _check_key(key), _check_position(position), K)
 
 
 def bits(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     """Stream words as integers, uint64 by default. Signed types are the unsigned draws
     reinterpreted. Returns ``(tensor, next_position)``."""
     t = _target(shape, dtype, torch.uint64, device, out, lambda d: d in _BITS and d not in _FLOATS + _COMPLEX)
-    return t, _fill(t, _check_key(key), position, K)
+    return t, _fill(t, _check_key(key), _check_position(position), K)
 
 
 def _below(key, pos, K, r, n, device, dest=None):
@@ -119,11 +136,15 @@ def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=
     32-bit or 64-bit draw, a rejected draw retries on a fallback stream, and CPU and CUDA give
     the same values. ``out`` is a tensor to write into, whose dtype and shape then decide the
     result. Not part of the specification. Returns ``(tensor, next_position)``."""
+    if size is None and out is None:
+        raise TypeError("randint needs size or out")
+    shape = None if size is None else _shape((size,))
     if out is not None:
-        if dtype not in (None, out.dtype) or (size is not None and tuple(out.shape) != (
-                (size,) if isinstance(size, int) else tuple(size))):
-            raise ValueError("out has a different dtype or shape")
-        dtype, size, device = out.dtype, tuple(out.shape), out.device
+        if dtype not in (None, out.dtype):
+            raise TypeError("out has a different dtype")
+        if shape is not None:
+            _fit(out, shape)
+        dtype, shape, device = out.dtype, tuple(out.shape), out.device
     dtype = torch.int64 if dtype is None else dtype
     if dtype not in _INTS:
         raise TypeError(f"unsupported dtype {dtype} for randint")
@@ -131,7 +152,7 @@ def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=
     info = torch.iinfo(dtype)
     if not info.min <= low < high <= info.max + 1:
         raise ValueError(f"need {info.min} <= low < high <= {info.max + 1} for {dtype}")
-    shape = (size,) if isinstance(size, int) else tuple(size)
+    position = _check_position(position)
     r = high - low
     if (torch.device(device).type == "cuda" and has_cuda and r not in (2**32, 2**64)
             and dtype in ((torch.int32, torch.uint32) if r <= 2**32 else ()) + (torch.int64, torch.uint64)):
@@ -196,7 +217,7 @@ def _float_fill(kind, key, position, shape, dtype, device, K, out):
     native = t.dtype if t.dtype in (torch.float32, torch.float64) else torch.float32
     buf = t if t.dtype == native and t.is_contiguous() else torch.empty(
         t.shape, dtype=native, device=t.device)
-    key = _check_key(key)
+    key, position = _check_key(key), _check_position(position)
     if t.device.type == "cpu":
         nxt = getattr(_ext, f"fill_{kind}_cpu")(buf, key, position, K)
     elif t.device.type == "cuda" and has_cuda:
@@ -236,7 +257,7 @@ def randperm(key, position, n, *, dtype=torch.int64, device="cpu", K=32):
         raise TypeError(f"unsupported dtype {dtype} for randperm")
     if n > torch.iinfo(dtype).max + 1:
         raise ValueError(f"n does not fit {dtype}")
-    perm, nxt = _ext.randperm_cpu(int(n), _check_key(key), position, K)
+    perm, nxt = _ext.randperm_cpu(int(n), _check_key(key), _check_position(position), K)
     return perm.to(dtype=dtype, device=device), nxt
 
 
