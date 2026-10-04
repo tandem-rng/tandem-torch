@@ -38,7 +38,10 @@ specification requires, so a `uint8` draw followed by a `float64` draw skips to 
 
 Supported dtypes: `bool`, `uint8` to `uint64`, the signed integers as the unsigned draws
 reinterpreted, `float16` (`(raw >> 5) * 2^-11`), `float32` (24 random bits) and `float64`
-(53 random bits). `randn` is tandem-torch's own convention: `erfinv` of one float64 uniform
+(53 random bits), and `complex64` and `complex128`, whose element is the real then the
+imaginary component as in the specification. `bfloat16` is a tandem-torch extension that is not in
+the specification: `(raw16 >> 8) * 2^-8` of a 16-bit word, the float16 rule with 8 fraction
+bits. `randn` is tandem-torch's own convention: `erfinv` of one float64 uniform
 shifted by half an ulp into `(0, 1)`, so it consumes 64 stream bits per normal and is finite.
 
 On CUDA, 32-bit and 64-bit types go straight to the tile kernel. Narrower types

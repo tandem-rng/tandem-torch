@@ -27,6 +27,9 @@ uint64_t fill_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) 
     case torch::kUInt64:
     case torch::kInt64: next = tandem::fill_u64(key.data(), pos, K, static_cast<uint64_t *>(p), n, stream); break;
     case torch::kDouble: next = tandem::fill_f64(key.data(), pos, K, static_cast<double *>(p), n, stream); break;
+    // A complex element is its real then imaginary component, so the fill is 2n components.
+    case torch::kComplexFloat: next = tandem::fill_f32(key.data(), pos, K, static_cast<float *>(p), 2 * n, stream); break;
+    case torch::kComplexDouble: next = tandem::fill_f64(key.data(), pos, K, static_cast<double *>(p), 2 * n, stream); break;
     default: TORCH_CHECK(false, "fill_cuda: unsupported dtype ", out.scalar_type());
     }
     C10_CUDA_KERNEL_LAUNCH_CHECK();

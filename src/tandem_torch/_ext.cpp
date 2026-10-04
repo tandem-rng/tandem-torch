@@ -44,6 +44,8 @@ uint64_t fill_cpu(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) {
     case torch::kUInt64:
     case torch::kInt64: tandem_fill_u64(&rng, static_cast<uint64_t *>(p), n); break;
     case torch::kDouble: tandem_fill_f64(&rng, static_cast<double *>(p), n); break;
+    case torch::kComplexFloat: tandem_fill_c32(&rng, static_cast<float *>(p), n); break;
+    case torch::kComplexDouble: tandem_fill_c64(&rng, static_cast<double *>(p), n); break;
     default: TORCH_CHECK(false, "fill_cpu: unsupported dtype ", out.scalar_type());
     }
     return tandem_position(&rng);

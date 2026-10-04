@@ -94,6 +94,8 @@ DUMPS = [
     ("seed42_K32_u8.bin", np.uint8, torch.uint8),
     ("seed42_K32_f16bits.bin", np.uint16, torch.float16),
     ("seed42_K32_bool.bin", np.uint8, torch.bool),
+    ("seed42_K32_c32.bin", np.float32, torch.complex64),
+    ("seed42_K32_c64.bin", np.float64, torch.complex128),
 ]
 
 
@@ -105,6 +107,8 @@ def test_dumps(name, npdtype, dtype, device):
         want = want.view(torch.float16)
     if dtype == torch.bool:
         want = want.bool()
+    if dtype.is_complex:
+        want = want.view(dtype)
     n = want.numel()
     t = make(name)
     got = t.fill_(torch.empty(n, dtype=dtype, device=device)).cpu()
@@ -132,6 +136,23 @@ def test_mixed_widths_align():
     x = t.rand(1)
     assert t.position == 128
     assert x.item() == tt.Tandem(42).rand(2)[1].item()
+
+
+def test_complex_aligns_by_component():
+    t = tt.Tandem(42)
+    t.bits(1, dtype=torch.uint8)
+    z = t.rand(1, dtype=torch.complex64)
+    assert t.position == 32 + 64
+    assert torch.view_as_real(z).tolist() == [tt.Tandem(42).rand(3, dtype=torch.float32)[1:].tolist()]
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_bfloat16_is_the_scaled_top_byte_of_the_u16_word(device):
+    t = tt.Tandem(3)
+    got = t.rand(1000, dtype=torch.bfloat16, device=device).cpu()
+    words = tt.Tandem(3).bits(1000, dtype=torch.uint16)
+    assert torch.equal(got.float(), (words.to(torch.int32) >> 8).float() * 2.0**-8)
+    assert t.position == 16000
 
 
 def test_shapes_and_out():
@@ -185,7 +206,7 @@ def test_argument_errors():
     with pytest.raises(TypeError):
         tt.Tandem(0).bits(2, dtype=torch.float32)
     with pytest.raises(TypeError):
-        tt.Tandem(0).fill_(torch.empty(2, dtype=torch.bfloat16))
+        tt.Tandem(0).fill_(torch.empty(2, dtype=torch.float8_e4m3fn))
 
 
 def test_entropy_seeds_differ():
@@ -195,7 +216,10 @@ def test_entropy_seeds_differ():
 # ---- CUDA agrees with the CPU ------------------------------------------------------------
 
 ALL_DTYPES = [torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16, torch.float16,
-              torch.uint32, torch.int32, torch.float32, torch.uint64, torch.int64, torch.float64]
+              torch.bfloat16, torch.uint32, torch.int32, torch.float32, torch.uint64, torch.int64,
+              torch.float64, torch.complex64, torch.complex128]
+UNIFORM = (torch.float16, torch.bfloat16, torch.float32, torch.float64, torch.complex64,
+           torch.complex128)
 
 
 @CUDA
@@ -205,10 +229,9 @@ def test_cuda_equals_cpu(dtype, K):
     for pos in (0, 1, 8, 16, 31, 33, 64, 127, 128, 1000, 1024, 1025, 4096 * 7 + 3, 2**20 + 5):
         for n in (0, 1, 3, 16, 31, 32, 33, 1000, 2**16 + 7):
             key = (0xdeadbeef, pos & 0xffffffff, K, n)
-            a, na = tt.bits(key, pos, n, dtype=dtype, device="cpu", K=K) if dtype not in (
-                torch.float16, torch.float32, torch.float64) else tt.rand(key, pos, n, dtype=dtype, K=K)
-            b, nb = tt.bits(key, pos, n, dtype=dtype, device="cuda", K=K) if dtype not in (
-                torch.float16, torch.float32, torch.float64) else tt.rand(key, pos, n, dtype=dtype, device="cuda", K=K)
+            draw = tt.rand if dtype in UNIFORM else tt.bits
+            a, na = draw(key, pos, n, dtype=dtype, K=K)
+            b, nb = draw(key, pos, n, dtype=dtype, device="cuda", K=K)
             assert na == nb
             assert torch.equal(a, b.cpu()), (dtype, K, pos, n)
 

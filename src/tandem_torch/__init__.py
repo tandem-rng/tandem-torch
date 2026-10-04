@@ -23,8 +23,10 @@ _BITS = {
     torch.uint16: 16, torch.int16: 16, torch.float16: 16,
     torch.uint32: 32, torch.int32: 32, torch.float32: 32,
     torch.uint64: 64, torch.int64: 64, torch.float64: 64,
+    torch.bfloat16: 16, torch.complex64: 64, torch.complex128: 128,
 }
-_FLOATS = (torch.float16, torch.float32, torch.float64)
+_FLOATS = (torch.float16, torch.bfloat16, torch.float32, torch.float64)
+_COMPLEX = (torch.complex64, torch.complex128)
 _U = {8: torch.uint8, 16: torch.uint16, 32: torch.uint32, 64: torch.uint64}
 
 
@@ -48,6 +50,13 @@ def _fill(out, key, pos, K):
         tmp = torch.empty_like(out, memory_format=torch.contiguous_format)
         nxt = _fill(tmp, key, pos, K)
         out.copy_(tmp)
+        return nxt
+    if out.dtype == torch.bfloat16:
+        # Not in the specification: the float16 rule with 8 fraction bits, (raw16 >> 8) * 2^-8,
+        # which a bfloat16 holds exactly.
+        nxt = _fill(out.view(torch.uint16), key, pos, K)
+        k = out.view(torch.uint16).to(torch.int32) >> 8
+        out.copy_(k.to(torch.float32) * 2.0**-8)
         return nxt
     if out.device.type == "cpu":
         return _ext.fill_cpu(out, key, pos, K)
@@ -103,15 +112,17 @@ def _target(shape, dtype, default, device, out, allowed):
 
 def rand(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     """Uniform draws in [0, 1) with the specification's float mappings, from a key and position.
-    The dtype defaults to float64. Returns ``(tensor, next_position)``."""
-    t = _target(shape, dtype, torch.float64, device, out, lambda d: d in _FLOATS)
+    The dtype defaults to float64. A complex element is its real then imaginary component.
+    bfloat16 is a tandem-torch extension, ``(raw16 >> 8) * 2^-8``. Returns
+    ``(tensor, next_position)``."""
+    t = _target(shape, dtype, torch.float64, device, out, lambda d: d in _FLOATS + _COMPLEX)
     return t, _fill(t, _check_key(key), position, K)
 
 
 def bits(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     """Stream words as integers, uint64 by default. Signed types are the unsigned draws
     reinterpreted. Returns ``(tensor, next_position)``."""
-    t = _target(shape, dtype, torch.uint64, device, out, lambda d: d in _BITS and d not in _FLOATS)
+    t = _target(shape, dtype, torch.uint64, device, out, lambda d: d in _BITS and d not in _FLOATS + _COMPLEX)
     return t, _fill(t, _check_key(key), position, K)
 
 
@@ -161,7 +172,8 @@ class Tandem:
         return tensor
 
     def rand(self, *shape, dtype=None, device="cpu", out=None):
-        """Uniform draws in [0, 1): 53 random bits for float64, 24 for float32, 11 for float16."""
+        """Uniform draws in [0, 1): 53 random bits for float64, 24 for float32, 11 for float16,
+        8 for bfloat16. Complex dtypes draw the real then the imaginary component."""
         t, self.position = rand(self.key, self.position, *shape, dtype=dtype, device=device,
                                 K=self.chunk_length, out=out)
         return t
