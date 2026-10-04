@@ -10,7 +10,7 @@ t = Tandem(42)                                   # the spec's stream for seed 42
 u = t.rand(1_000_000)                            # float64 in [0, 1), 53 random bits
 f = t.rand(1 << 20, dtype=torch.float32, device="cuda")
 w = t.bits(1 << 20, dtype=torch.uint32)          # stream words
-z = t.randn(1000)                                # Box-Muller, two float64 uniforms each
+z = t.randn(1000)                                # ziggurat, one 64-bit draw each
 e = t.exponential(1000)                          # -log(1 - u), one float64 uniform each
 b = t.randbool(100)
 i = t.randint(-5, 5, (4, 4))                     # int64 on [-5, 5), Lemire, same values on CUDA
@@ -32,7 +32,7 @@ s = t.get_state(); t.set_state(s)                # as on torch.Generator, also m
   `float32`, `float64`, `complex64` and `complex128`.
 - `rand` with `bfloat16`: an extension, `(raw16 >> 8) * 2^-8`, not in the specification.
 - `randint(low, high, size, dtype, device, out=)`: Lemire's method, same values on CUDA.
-- `randn(*shape, out=)`: Box-Muller from tandem-cuda. Bit exact except CUDA float32, within 16 ulps.
+- `randn(*shape, out=)`: float64 ziggurat, float32 Box-Muller. Bit exact except CUDA float32, within 16 ulps.
 - `exponential(*shape, out=)`: `-log(1 - u)` as tandem-c, bit exact on CPU and CUDA.
 - `randperm(n)`, `shuffle(x, dim)`: Fisher-Yates, defined on the CPU, `n < 2^32`.
 - `at(dtype, i)`: element `i` of the next fill without advancing, for 32 and 64-bit types.

@@ -11,7 +11,7 @@ random number generator. CPU and CUDA fills write the specification's stream bit
 on both. It is not a `torch.Generator`, which third-party code cannot implement.
 
 The build needs a C and C++ compiler, and `nvcc` or `CUDA_HOME` for the CUDA fills. The
-submodules pin tandem-c at 4e9a69f and tandem-cuda at c5c5725.
+submodules pin tandem-c at 121db59 and tandem-cuda at 76eddae.
 
 ```sh
 git clone --recurse-submodules https://github.com/tandem-rng/tandem-torch
@@ -26,7 +26,7 @@ from tandem_torch import Tandem
 t = Tandem(42)                                   # the spec's stream for seed 42
 f = t.rand(1 << 20, dtype=torch.float32, device="cuda")
 worker = t.split(7)                              # by index, from the key alone
-z = worker.randn(1000)                           # Box-Muller, two float64 uniforms each
+z = worker.randn(1000)                           # ziggurat, one 64-bit draw each
 e = worker.exponential(1000)                     # -log(1 - u), bit exact on CPU and CUDA
 ```
 

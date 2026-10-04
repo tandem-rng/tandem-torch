@@ -21,8 +21,8 @@ pip install torch                      # a CPU or CUDA build, see pytorch.org
 pip install --no-build-isolation .
 ```
 
-The reference sources sit in the `external/tandem-c` (4e9a69f) and `external/tandem-cuda`
-(c5c5725) git submodules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init`
+The reference sources sit in the `external/tandem-c` (121db59) and `external/tandem-cuda`
+(76eddae) git submodules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init`
 in an existing clone. GitHub's ZIP download omits submodules and does not build.
 
 The build needs a C and C++ compiler. With `nvcc` on the path (or `CUDA_HOME` set) the CUDA
