@@ -130,13 +130,24 @@ NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 2
 | `torch.rand` float32 / float64 | 1100 / 1197 |
 | `Tandem.bits` uint32 | 1334 |
 | `Tandem` fill uint8 / bool / float16 | 1174 / 1100 / 1313 |
-| `torch.randint` int32 | 332 |
-| `Tandem.randint` int32 | 393 |
-| `Tandem.randn` float32 / float64 | 1117 / 694 |
-| `torch.randn` float32 / float64 | 767 / 569 |
+| `Tandem.randint` int32 `[0, 1000)`, `out=` / allocating | 1316 / 1313 |
+| `torch.randint` int32 `[0, 1000)` | 840 |
+| `Tandem.randint` int32 full range | 396 |
+| `torch.randint` int32 full range | 332 |
+| `Tandem.randint` int64 `[0, 1000)` | 602 |
+| `torch.randint` int64 `[0, 1000)` | 1292 |
+| `Tandem.randint` int64 `[-2^62, 2^62)` | 323 |
+| `torch.randint` int64 `[-2^62, 2^62)` | 628 |
+| `Tandem.randn` float32 `out=` / allocating | 1138 / 1125 |
+| `torch.randn` float32 | 774 |
+| `Tandem.randn` float64 `out=` / allocating | 705 / 693 |
+| `torch.randn` float64 | 583 |
 
-`Tandem.randint` and `Tandem.randn` allocate their result, the `torch` calls and the other
-rows write into a preallocated tensor.
+`randint` and `randn` take `out=` and then write into it, otherwise they allocate. The bounded
+kernel itself runs at about 1100 to 1300 GiB/s for a small range but near 650 for a range close
+to 2^32 or above, where each element divides to find the rejection threshold. A nonzero offset
+and an int64 result from 32-bit draws are separate passes over the output after the kernel,
+which is why the int64 and full-range int32 rows sit below the small-range int32 row.
 
 The CPU path is the C row engine, the CUDA path is the shared-memory tile kernel. At 2^27
 elements the tile reads a little below its 2^28 rate because launch and clock ramp are a

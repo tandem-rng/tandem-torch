@@ -335,6 +335,24 @@ def test_randint_dtypes_are_the_shifted_draws(dtype, low, high):
     assert got.tolist() == [x + low for x in d] and nxt == nxt0
 
 
+@pytest.mark.parametrize("device", DEVICES)
+def test_out_gives_the_same_values_as_a_new_tensor(device):
+    """out= fills in place for the draw's width and converts otherwise, also for strided out."""
+    for dtype, lo, hi in ((torch.int32, -5, 50), (torch.int64, 0, 2**40), (torch.int64, -3, 9),
+                          (torch.int16, -300, 300), (torch.uint8, 0, 256)):
+        want, nxt = tt.randint(tt.Tandem(3).key, 0, lo, hi, (6, 8), dtype=dtype, device=device)
+        for out in (torch.empty(6, 8, dtype=dtype, device=device),
+                    torch.empty(6, 16, dtype=dtype, device=device)[:, ::2]):
+            got, n2 = tt.randint(tt.Tandem(3).key, 0, lo, hi, out=out)
+            assert got is out and n2 == nxt and torch.equal(out.cpu(), want.cpu()), (dtype, lo, hi)
+    for dtype in (torch.float32, torch.float64, torch.bfloat16):
+        want, nxt = tt.randn(tt.Tandem(3).key, 0, 6, 8, dtype=dtype, device=device)
+        for out in (torch.empty(6, 8, dtype=dtype, device=device),
+                    torch.empty(6, 16, dtype=dtype, device=device)[:, ::2]):
+            got, n2 = tt.randn(tt.Tandem(3).key, 0, dtype=dtype, device=device, out=out)
+            assert got is out and n2 == nxt and torch.equal(out.cpu(), want.cpu()), dtype
+
+
 def lemire(words, n):
     """One scalar draw below n over an iterator of 32-bit stream words, as tandem_u32_below."""
     while True:

@@ -98,11 +98,12 @@ def bits(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     return t, _fill(t, _check_key(key), position, K)
 
 
-def _below(key, pos, K, r, n, device):
+def _below(key, pos, K, r, n, device, dest=None):
     """n draws below r, as uint32 (r <= 2^32) or uint64 (r <= 2^64) values. The raw word fill
     is the draw below 2^32 or 2^64, so those two ranges take no rejection."""
     wide = r > 2**32
-    d = torch.empty(n, dtype=torch.uint64 if wide else torch.uint32, device=device)
+    d = dest if dest is not None else torch.empty(
+        n, dtype=torch.uint64 if wide else torch.uint32, device=device)
     if r == 2**32 or r == 2**64:
         return d, _fill(d, key, pos, K)
     if torch.device(device).type == "cpu":
@@ -112,11 +113,18 @@ def _below(key, pos, K, r, n, device):
     return d, _ext.fill_below_cuda(d, key, pos, K, r)
 
 
-def randint(key, position, low, high, size, *, dtype=torch.int64, device="cpu", K=32):
+def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=32, out=None):
     """Integers uniform on ``[low, high)`` by Lemire's method, as ``tandem::fill_u32_below``
     when the range is at most 2^32 and ``fill_u64_below`` above. Each element consumes one
     32-bit or 64-bit draw, a rejected draw retries on a fallback stream, and CPU and CUDA give
-    the same values. Not part of the specification. Returns ``(tensor, next_position)``."""
+    the same values. ``out`` is a tensor to write into, whose dtype and shape then decide the
+    result. Not part of the specification. Returns ``(tensor, next_position)``."""
+    if out is not None:
+        if dtype not in (None, out.dtype) or (size is not None and tuple(out.shape) != (
+                (size,) if isinstance(size, int) else tuple(size))):
+            raise ValueError("out has a different dtype or shape")
+        dtype, size, device = out.dtype, tuple(out.shape), out.device
+    dtype = torch.int64 if dtype is None else dtype
     if dtype not in _INTS:
         raise TypeError(f"unsupported dtype {dtype} for randint")
     low, high = int(low), int(high)
@@ -124,42 +132,57 @@ def randint(key, position, low, high, size, *, dtype=torch.int64, device="cpu", 
     if not info.min <= low < high <= info.max + 1:
         raise ValueError(f"need {info.min} <= low < high <= {info.max + 1} for {dtype}")
     shape = (size,) if isinstance(size, int) else tuple(size)
-    d, nxt = _below(_check_key(key), position, K, high - low, math.prod(shape), device)
+    r = high - low
+    # A result of the draw's width is filled in place, in `out` when it is contiguous.
+    bits = 64 if r > 2**32 else 32
+    dest = out.view(_U[bits]) if out is not None and info.bits == bits and out.is_contiguous() else None
+    d, nxt = _below(_check_key(key), position, K, r, math.prod(shape), device, dest)
     # A draw added to low in wrapping arithmetic of the draw's width is exact once the result
-    # fits dtype. The words of an int32 or int64 result are filled in place, others convert.
+    # fits dtype.
     if d.dtype == torch.uint32 and dtype in (torch.int32, torch.uint32):
-        t, bits = d.view(torch.int32), 32
+        t = d.view(torch.int32)
     elif d.dtype == torch.uint64 and dtype in (torch.int64, torch.uint64):
-        t, bits = d.view(torch.int64), 64
+        t = d.view(torch.int64)
+    elif info.bits == 64 and out is not None and out.is_contiguous():
+        # Widen the 32-bit draws straight into out. They are below 2^32, so int64 holds them.
+        t, bits = out.view(torch.int64).view(-1), 64
+        t.copy_(d)
+        dest = t
     else:
         t, bits = d.to(torch.int64), 64
     if low:
         t.add_(((low + 2**(bits - 1)) % 2**bits) - 2**(bits - 1))
     t = t.view(dtype) if info.bits == bits else t.to(dtype)
-    return t.view(shape), nxt
+    t = t.view(shape)
+    if out is not None and dest is None:
+        out.copy_(t)
+    return (out if out is not None else t), nxt
 
 
-def randn(key, position, *shape, dtype=torch.float64, device="cpu", K=32):
+def randn(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     """Standard normals by Box-Muller, as ``tandem_fill_normal_f64`` and ``_f32`` on CPU and
     ``tandem::fill_normal_f64`` and ``_f32`` on CUDA. Elements 2j and 2j + 1 are the cos and sin
     halves of one step from the uniforms 2j and 2j + 1 of the plain float fill, so an odd count
     still consumes both uniforms of its last pair. A float64 normal pair takes 128 stream bits
     and a float32 pair 64, in float arithmetic. The libm and CUDA math functions differ in the
     last bits, so devices agree to a few ulps. Other float dtypes round the float32 normal. An
-    empty fill leaves the position alone. Not part of the specification. Returns
+    empty fill leaves the position alone. A contiguous float32 or float64 ``out`` is filled in
+    place. Not part of the specification. Returns
     ``(tensor, next_position)``."""
-    if dtype not in _FLOATS:
-        raise TypeError(f"unsupported dtype {dtype} for randn")
-    native = dtype if dtype in (torch.float32, torch.float64) else torch.float32
-    t = torch.empty(shape, dtype=native, device=device)
+    t = _target(shape, dtype, torch.float64, device, out, lambda d: d in _FLOATS)
+    native = t.dtype if t.dtype in (torch.float32, torch.float64) else torch.float32
+    buf = t if t.dtype == native and t.is_contiguous() else torch.empty(
+        t.shape, dtype=native, device=t.device)
     key = _check_key(key)
     if t.device.type == "cpu":
-        nxt = _ext.fill_normal_cpu(t, key, position, K)
+        nxt = _ext.fill_normal_cpu(buf, key, position, K)
     elif t.device.type == "cuda" and has_cuda:
-        nxt = _ext.fill_normal_cuda(t, key, position, K)
+        nxt = _ext.fill_normal_cuda(buf, key, position, K)
     else:
         raise RuntimeError(f"tandem_torch fills CPU and CUDA tensors, not {t.device.type}")
-    return t.to(dtype), nxt
+    if buf is not t:
+        t.copy_(buf)
+    return t, nxt
 
 
 _AT = {torch.uint32: ("u32", 32, False), torch.int32: ("u32", 32, True),
@@ -261,10 +284,10 @@ class Tandem:
         without advancing, see :func:`at`."""
         return at(self.key, self.position, dtype, i, self.chunk_length)
 
-    def randint(self, low, high, size, *, dtype=torch.int64, device="cpu"):
+    def randint(self, low, high, size=None, *, dtype=None, device="cpu", out=None):
         """Integers uniform on ``[low, high)``, see :func:`randint`."""
         t, self.position = randint(self.key, self.position, low, high, size, dtype=dtype,
-                                   device=device, K=self.chunk_length)
+                                   device=device, K=self.chunk_length, out=out)
         return t
 
     def randperm(self, n, *, dtype=torch.int64, device="cpu"):
@@ -277,10 +300,10 @@ class Tandem:
         """``x`` with its entries along ``dim`` in a random order, as a new tensor."""
         return x.index_select(dim, self.randperm(x.shape[dim], device=x.device))
 
-    def randn(self, *shape, dtype=torch.float64, device="cpu"):
+    def randn(self, *shape, dtype=None, device="cpu", out=None):
         """Standard normal draws by Box-Muller, see :func:`randn`."""
         t, self.position = randn(self.key, self.position, *shape, dtype=dtype, device=device,
-                                 K=self.chunk_length)
+                                 K=self.chunk_length, out=out)
         return t
 
     # Derived generators --------------------------------------------------------------------
