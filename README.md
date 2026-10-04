@@ -62,9 +62,8 @@ sequential scalar bounded draw per swap, `tandem_u32_below` over the stream, so 
 defines it and a CUDA result is copied from there. `shuffle(x, dim=0)` indexes `x` with a
 `randperm`. None of these is in the specification, and `randperm` needs `n < 2^32`.
 
-On CUDA, 32-bit and 64-bit types go straight to the tile kernel. Narrower types
-and `bool` come from a word fill over the same stream bytes, since the stream is one byte
-sequence after alignment.
+On CUDA every dtype has its own fill kernel in `tandem.cuh`, including `bool`, the 8-bit and
+16-bit types and `float16`. `bfloat16` is the 16-bit word fill followed by the scaling.
 
 ## Install
 
@@ -112,10 +111,19 @@ NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 2
 
 | | GiB/s |
 |---|---|
-| `Tandem.rand` float32 / float64 | 1300 / 1355 |
-| `torch.rand` float32 / float64 | 1101 / 1176 |
-| `Tandem.bits` uint32 | 1314 |
+| `Tandem.rand` float32 / float64 | 1330 / 1364 |
+| `torch.rand` float32 / float64 | 1100 / 1197 |
+| `Tandem.bits` uint32 | 1334 |
+| `Tandem` fill uint8 / bool / float16 | 1174 / 1100 / 1313 |
 | `torch.randint` int32 | 336 |
+| `Tandem.randint` int32 | 409 |
+| `Tandem.randn` float32 / float64 | 535 / 340 |
+| `torch.randn` float32 / float64 | 860 / 570 |
+
+`Tandem.randint` and `Tandem.randn` allocate their result, the `torch` calls and the other
+rows write into a preallocated tensor. A float64 normal takes 128 stream bits and a float32
+normal 64, so `randn` writes the output at a fraction of the rate of `rand`. The A100 figures
+vary by about 15 % between runs for `randn`.
 
 The CPU path is the C row engine, the CUDA path is the shared-memory tile kernel. At 2^27
 elements the tile reads a little below its 2^28 rate because launch and clock ramp are a

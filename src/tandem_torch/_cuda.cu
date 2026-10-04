@@ -10,8 +10,6 @@
 
 using Key = std::array<uint32_t, 4>;
 
-/* 32-bit and 64-bit element types only. Python builds the narrower types and bool from a
- * word fill, since the stream is one byte sequence after alignment. */
 uint64_t fill_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) {
     TORCH_CHECK(out.device().is_cuda(), "fill_cuda: tensor must be on a CUDA device");
     TORCH_CHECK(out.is_contiguous(), "fill_cuda: tensor must be contiguous");
@@ -21,6 +19,12 @@ uint64_t fill_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) 
     void *p = out.data_ptr();
     uint64_t next;
     switch (out.scalar_type()) {
+    case torch::kBool: next = tandem::fill_bool(key.data(), pos, K, static_cast<bool *>(p), n, stream); break;
+    case torch::kUInt8:
+    case torch::kInt8: next = tandem::fill_u8(key.data(), pos, K, static_cast<uint8_t *>(p), n, stream); break;
+    case torch::kUInt16:
+    case torch::kInt16: next = tandem::fill_u16(key.data(), pos, K, static_cast<uint16_t *>(p), n, stream); break;
+    case torch::kHalf: next = tandem::fill_f16_bits(key.data(), pos, K, static_cast<uint16_t *>(p), n, stream); break;
     case torch::kUInt32:
     case torch::kInt32: next = tandem::fill_u32(key.data(), pos, K, static_cast<uint32_t *>(p), n, stream); break;
     case torch::kFloat: next = tandem::fill_f32(key.data(), pos, K, static_cast<float *>(p), n, stream); break;

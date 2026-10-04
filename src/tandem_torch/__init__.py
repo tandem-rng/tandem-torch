@@ -65,36 +65,7 @@ def _fill(out, key, pos, K):
         raise RuntimeError(f"tandem_torch fills CPU and CUDA tensors, not {out.device.type}")
     if not has_cuda:
         raise RuntimeError("tandem_torch was built without CUDA support")
-    if w >= 32:
-        return _ext.fill_cuda(out, key, pos, K)
-    return _fill_cuda_narrow(out, key, pos, K, w)
-
-
-def _fill_cuda_narrow(out, key, pos, K, w):
-    """Elements narrower than a word come from a word fill over the same stream bytes, since
-    after alignment every fill is one byte stream."""
-    n = out.numel()
-    p = _align(pos, w)
-    p32 = p & ~31
-    nbits = n * w
-    nwords = -(-(p - p32 + nbits) // 32)
-    words = torch.empty(nwords, dtype=torch.uint32, device=out.device)
-    _ext.fill_cuda(words, key, p32, K)
-    raw = words.view(torch.uint8)
-    if w == 1:
-        off = p - p32
-        bit = (raw.unsqueeze(1) >> torch.arange(8, dtype=torch.uint8, device=out.device)) & 1
-        out.view(-1).copy_(bit.flatten()[off:off + n])
-    else:
-        off = (p - p32) // 8
-        raw = raw[off:off + nbits // 8]
-        if out.dtype == torch.float16:
-            # (raw >> 5) * 2^-11 has at most 11 significant bits, so the half is exact.
-            k = raw.view(torch.uint16).to(torch.int32) >> 5
-            out.view(-1).copy_(k.to(torch.float32) * 2.0**-11)
-        else:
-            out.view(torch.uint8).copy_(raw)
-    return p + nbits
+    return _ext.fill_cuda(out, key, pos, K)
 
 
 def _target(shape, dtype, default, device, out, allowed):

@@ -57,6 +57,23 @@ rows.append(("torch.randint int32", gibs(
     lambda: torch.randint(-2**31, 2**31 - 1, (N,), dtype=torch.int32, device=device, generator=gen, out=i32),
     i32.nbytes)))
 
+# The narrow types, which CUDA fills in their own kernels.
+for dtype in (torch.uint8, torch.bool, torch.float16):
+    buf = torch.empty(N, dtype=dtype, device=device)
+    name = str(dtype).removeprefix("torch.")
+    fill = (lambda: t.rand(out=buf)) if dtype == torch.float16 else (lambda: t.bits(out=buf))
+    rows.append((f"Tandem fill {name}", gibs(fill, buf.nbytes)))
+
+# randint and randn allocate their result, the torch calls write into a preallocated tensor.
+rows.append(("Tandem.randint int32", gibs(lambda: t.randint(-2**31, 2**31 - 1, N, dtype=torch.int32, device=device),
+                                          4 * N)))
+for dtype in (torch.float32, torch.float64):
+    buf = torch.empty(N, dtype=dtype, device=device)
+    name = str(dtype).removeprefix("torch.")
+    rows.append((f"Tandem.randn {name}", gibs(lambda: t.randn(N, dtype=dtype, device=device), buf.nbytes)))
+    rows.append((f"torch.randn {name}",
+                 gibs(lambda: torch.randn(N, dtype=dtype, device=device, generator=gen, out=buf), buf.nbytes)))
+
 for name, g in rows:
     print(f"{name:28s} {g:8.1f} GiB/s")
 print("device", device, torch.cuda.get_device_name() if device == "cuda" else "")
