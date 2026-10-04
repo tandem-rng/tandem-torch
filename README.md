@@ -32,6 +32,7 @@ u = t.rand(1_000_000)                            # float64 in [0, 1), 53 random 
 f = t.rand(1 << 20, dtype=torch.float32, device="cuda")
 w = t.bits(1 << 20, dtype=torch.uint32)          # stream words
 z = t.randn(1000)                                # Box-Muller, two float64 uniforms each
+e = t.exponential(1000)                          # -log(1 - u), one float64 uniform each
 b = t.randbool(100)
 i = t.randint(-5, 5, (4, 4))                     # int64 on [-5, 5), Lemire, same values on CUDA
 p = t.randperm(10)                               # Fisher-Yates, defined on the CPU
@@ -56,12 +57,13 @@ requires. The functional forms `tandem_torch.rand(key, position, *shape, ...)` a
 - `rand` with `bfloat16`: an extension, `(raw16 >> 8) * 2^-8`, not in the specification.
 - `randint(low, high, size, dtype, device, out=)`: Lemire's method, same values on CUDA.
 - `randn(*shape, out=)`: Box-Muller from tandem-cuda. Bit exact except CUDA float32, within 16 ulps.
+- `exponential(*shape, out=)`: `-log(1 - u)` as tandem-c, bit exact on CPU and CUDA.
 - `randperm(n)`, `shuffle(x, dim)`: Fisher-Yates, defined on the CPU, `n < 2^32`.
 - `at(dtype, i)`: element `i` of the next fill without advancing, for 32 and 64-bit types.
 - `split(index)`, `fork(n)`, `sub(purpose)`: child generators.
 - Parallel use: ranks that start at the position of their first element reproduce a serial run.
 
-Bounded draws, normals, `randperm` and `bfloat16` are not in the specification.
+Bounded draws, normals, exponentials, `randperm` and `bfloat16` are not in the specification.
 
 ## Tests
 
@@ -69,7 +71,7 @@ Bounded draws, normals, `randperm` and `bfloat16` are not in the specification.
 
 - Every vector of the specification, from `tests/vectors.json`.
 - Stream dumps in `tests/data` from several offsets.
-- `randint` and `randn` against `tests/cross.json`, made by `tools/cross_json.py` from the
+- `randint`, `randn` and `exponential` against `tests/cross.json`, made by `tools/cross_json.py` from the
   submodule fixtures. `tools/bump.sh` moves the pins to the latest main.
 - With a CUDA device, CUDA fills against CPU fills for every dtype.
 

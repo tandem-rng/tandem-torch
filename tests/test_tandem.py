@@ -232,10 +232,61 @@ def test_randn_bits_match_tandem_c():
 
 
 @pytest.mark.parametrize("device", DEVICES)
-def test_empty_bounded_and_normal_fills_keep_the_position(device):
+def test_exponential_matches_the_other_ports(device):
+    """tandem-cuda's exponential fills from the key of seed 42, bit exact on every device."""
+    key = tuple(CROSS["cuda_key"])
+    for dtype, rows, w in ((torch.float64, CROSS["cuda_exp64"], 64), (torch.float32, CROSS["cuda_exp32"], 32)):
+        for row in rows:
+            e, nxt = tt.exponential(key, row["pos"], row["n"], dtype=dtype, device=device)
+            assert torch.equal(e.cpu(), torch.tensor(row["out"], dtype=dtype)), (dtype, row["pos"])
+            assert nxt == -(-row["pos"] // w) * w + row["n"] * w
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_exponential_bits_match_tandem_c(device):
+    """The bytes of tandem-c's tools/dump_exponentials.c: 1e6 float64 then 1e6 float32 from
+    five positions. tandem-c records their FNV-1a hash 0x47f8f98297d94ee2, this test SHA-256."""
+    h = hashlib.sha256()
+    key = tt.Tandem(2026 + (7 << 64)).key
+    for start in (0, 1, 77, 12345, 1 << 30):
+        e, nxt = tt.exponential(key, start, 1_000_000, device=device)
+        h.update(e.cpu().numpy().tobytes())
+        h.update(tt.exponential(key, nxt, 1_000_000, dtype=torch.float32, device=device)[0].cpu().numpy().tobytes())
+    assert h.hexdigest() == "5c035a4ef1368231d25a9c2f9201be2df3224e28a14549a50625d0db3770ef4e"
+
+
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_exponential_cut_at_any_element_equals_the_whole_fill(device, dtype):
+    key, n = tt.Tandem(7).key, 3000
+    whole, end = tt.exponential(key, 37, n, dtype=dtype, device=device)
+    for cut in (1, 7, 1000, 1024, 2049):
+        a, mid = tt.exponential(key, 37, cut, dtype=dtype, device=device)
+        b, end2 = tt.exponential(key, mid, n - cut, dtype=dtype, device=device)
+        assert torch.equal(torch.cat([a, b]), whole) and end2 == end, cut
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_exponential_is_exp1(dtype):
+    """Raw moments k! for k = 1 to 4 within 5 standard errors, and the Kolmogorov-Smirnov
+    distance below its 0.1 % critical value, on 1e7 draws."""
+    n = 10**7
+    x = tt.Tandem(31).exponential(n, dtype=dtype).double()
+    for k, (m, var) in enumerate(((1, 1), (2, 20), (6, 684), (24, 39744)), 1):
+        assert abs((x**k).mean().item() - m) < 5 * (var / n) ** 0.5, k
+    x = x.sort().values
+    cdf = -torch.expm1(-x)
+    i = torch.arange(1, n + 1, dtype=torch.float64)
+    d = torch.maximum(i / n - cdf, cdf - (i - 1) / n).max().item()
+    assert d < 1.95 / n**0.5
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_empty_bounded_normal_and_exponential_fills_keep_the_position(device):
     key = tt.Tandem(5).key
     for dtype in (torch.float32, torch.float64):
         assert tt.randn(key, 37, 0, dtype=dtype, device=device)[1] == 37
+        assert tt.exponential(key, 37, 0, dtype=dtype, device=device)[1] == 37
     for r in (3, 2**40):
         assert tt.randint(key, 37, 0, r, 0, device=device)[1] == 37
 

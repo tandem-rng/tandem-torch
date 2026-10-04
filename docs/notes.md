@@ -46,6 +46,12 @@ tandem-c bit for bit. The CUDA float32 fill uses `logf` and the fast `__sincosf`
 16 ulps. `float16` and `bfloat16`
 round the float32 normal. Empty bounded and normal fills leave the position alone.
 
+`exponential` is `-log(1 - u)` of uniform draw i for element i, with the polynomial log of the
+normals (`tandem_fill_exponential_f64` and `_f32` on CPU, `tandem::fill_exponential_f64` and
+`_f32` on CUDA). Both devices equal tandem-c bit for bit, float32 included. `float16` and
+`bfloat16` round the float32 value, and an empty fill leaves the position alone. It is not in
+the specification.
+
 `randint(low, high, size, dtype=torch.int64, device="cpu")` draws on `[low, high)`. A range of
 at most 2^32 takes one 32-bit draw per element (`tandem_fill_u32_below` on CPU,
 `tandem::fill_u32_below` on CUDA), a larger range one 64-bit draw. Both use Lemire's method and
@@ -74,7 +80,8 @@ of the specification shows.
 
 `tests/test_tandem.py` checks every vector of the specification (`tests/vectors.json`, a copy
 of the spec repository's file) and compares fills from several offsets with the reference
-stream dumps in `tests/data`, complex types included. It checks `randint` and `randn` against
+stream dumps in `tests/data`, complex types included. It checks `randint`, `randn` and
+`exponential` against
 `tests/cross.json`, which `tools/cross_json.py` makes from the cross-check headers of the
 submodules and which holds the values of tandem-c and tandem-cuda, `randperm` against a
 Python Fisher-Yates over the stream words, `bfloat16` against the 16-bit word fill and `at`

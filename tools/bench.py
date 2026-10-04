@@ -77,6 +77,11 @@ for dtype in (torch.float32, torch.float64):
     rows.append((f"Tandem.randn {name}", gibs(lambda: t.randn(N, dtype=dtype, device=device), buf.nbytes)))
     rows.append((f"torch.randn {name}",
                  gibs(lambda: torch.randn(N, dtype=dtype, device=device, generator=gen, out=buf), buf.nbytes)))
+for dtype in (torch.float32, torch.float64):
+    buf = torch.empty(N, dtype=dtype, device=device)
+    name = str(dtype).removeprefix("torch.")
+    rows.append((f"Tandem.exponential {name} out=", gibs(lambda: t.exponential(out=buf), buf.nbytes)))
+    rows.append((f"Tensor.exponential_ {name}", gibs(lambda: buf.exponential_(generator=gen), buf.nbytes)))
 
 for name, g in rows:
     print(f"{name:44s} {g:8.1f} GiB/s")

@@ -84,6 +84,19 @@ uint64_t fill_normal_cpu(torch::Tensor out, const Key &key, uint64_t pos, uint32
     return tandem_position(&rng);
 }
 
+/* Standard exponentials into a float32 or float64 tensor, -log(1 - u) of the plain float fill. */
+uint64_t fill_exponential_cpu(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) {
+    TORCH_CHECK(out.device().is_cpu() && out.is_contiguous(), "fill_exponential_cpu: need a contiguous CPU tensor");
+    tandem_rng rng = make(key, pos, K);
+    size_t n = (size_t)out.numel();
+    switch (out.scalar_type()) {
+    case torch::kFloat: tandem_fill_exponential_f32(&rng, out.data_ptr<float>(), n); break;
+    case torch::kDouble: tandem_fill_exponential_f64(&rng, out.data_ptr<double>(), n); break;
+    default: TORCH_CHECK(false, "fill_exponential_cpu: dtype must be float32 or float64");
+    }
+    return tandem_position(&rng);
+}
+
 /* Fisher-Yates from the end with one sequential scalar bounded draw per step. The scalar draw
  * rejects by discarding, so the position after the shuffle depends on the draws. */
 std::pair<torch::Tensor, uint64_t> randperm_cpu(int64_t n, const Key &key, uint64_t pos, uint32_t K) {
@@ -141,12 +154,14 @@ uint64_t fill_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K);
 uint64_t fill_below_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range);
 uint64_t randint_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range, int64_t low);
 uint64_t fill_normal_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K);
+uint64_t fill_exponential_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K);
 #endif
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fill_cpu", &fill_cpu);
     m.def("fill_below_cpu", &fill_below_cpu);
     m.def("fill_normal_cpu", &fill_normal_cpu);
+    m.def("fill_exponential_cpu", &fill_exponential_cpu);
     m.def("randperm_cpu", &randperm_cpu);
     m.def("at", &at_value);
     m.def("seed", &seed_key);
@@ -158,6 +173,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fill_below_cuda", &fill_below_cuda);
     m.def("randint_cuda", &randint_cuda);
     m.def("fill_normal_cuda", &fill_normal_cuda);
+    m.def("fill_exponential_cuda", &fill_exponential_cuda);
     m.attr("has_cuda") = true;
 #else
     m.attr("has_cuda") = false;

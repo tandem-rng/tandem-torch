@@ -108,3 +108,18 @@ uint64_t fill_normal_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint3
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return next;
 }
+
+uint64_t fill_exponential_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) {
+    TORCH_CHECK(out.device().is_cuda() && out.is_contiguous(), "fill_exponential_cuda: need a contiguous CUDA tensor");
+    c10::cuda::CUDAGuard guard(out.device());
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    size_t n = (size_t)out.numel();
+    uint64_t next;
+    switch (out.scalar_type()) {
+    case torch::kFloat: next = tandem::fill_exponential_f32(key.data(), pos, K, out.data_ptr<float>(), n, stream); break;
+    case torch::kDouble: next = tandem::fill_exponential_f64(key.data(), pos, K, out.data_ptr<double>(), n, stream); break;
+    default: TORCH_CHECK(false, "fill_exponential_cuda: dtype must be float32 or float64");
+    }
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return next;
+}

@@ -13,7 +13,7 @@ import torch
 
 from . import _ext
 
-__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "randn", "at", "has_cuda"]
+__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "randn", "exponential", "at", "has_cuda"]
 
 has_cuda = _ext.has_cuda
 
@@ -179,15 +179,28 @@ def randn(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     empty fill leaves the position alone. A contiguous float32 or float64 ``out`` is filled in
     place. Not part of the specification. Returns
     ``(tensor, next_position)``."""
+    return _float_fill("normal", key, position, shape, dtype, device, K, out)
+
+
+def exponential(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
+    """Standard exponentials ``-log(1 - u)``, element i from uniform i of the plain float fill,
+    as ``tandem_fill_exponential_f64`` and ``_f32``. Bit exact on both devices. Other float
+    dtypes round the float32 value. An empty fill leaves the position alone. Not part of the
+    specification. Returns ``(tensor, next_position)``."""
+    return _float_fill("exponential", key, position, shape, dtype, device, K, out)
+
+
+def _float_fill(kind, key, position, shape, dtype, device, K, out):
+    """A float32 or float64 fill of the C or CUDA function `kind`, rounded for other dtypes."""
     t = _target(shape, dtype, torch.float64, device, out, lambda d: d in _FLOATS)
     native = t.dtype if t.dtype in (torch.float32, torch.float64) else torch.float32
     buf = t if t.dtype == native and t.is_contiguous() else torch.empty(
         t.shape, dtype=native, device=t.device)
     key = _check_key(key)
     if t.device.type == "cpu":
-        nxt = _ext.fill_normal_cpu(buf, key, position, K)
+        nxt = getattr(_ext, f"fill_{kind}_cpu")(buf, key, position, K)
     elif t.device.type == "cuda" and has_cuda:
-        nxt = _ext.fill_normal_cuda(buf, key, position, K)
+        nxt = getattr(_ext, f"fill_{kind}_cuda")(buf, key, position, K)
     else:
         raise RuntimeError(f"tandem_torch fills CPU and CUDA tensors, not {t.device.type}")
     if buf is not t:
@@ -314,6 +327,12 @@ class Tandem:
         """Standard normal draws by Box-Muller, see :func:`randn`."""
         t, self.position = randn(self.key, self.position, *shape, dtype=dtype, device=device,
                                  K=self.chunk_length, out=out)
+        return t
+
+    def exponential(self, *shape, dtype=None, device="cpu", out=None):
+        """Standard exponential draws, see :func:`exponential`."""
+        t, self.position = exponential(self.key, self.position, *shape, dtype=dtype,
+                                       device=device, K=self.chunk_length, out=out)
         return t
 
     # Derived generators --------------------------------------------------------------------
