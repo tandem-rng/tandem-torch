@@ -72,6 +72,12 @@ tandem-c and tandem-cuda.
 On CUDA every dtype has its own fill kernel in `tandem.cuh`, including `bool`, the 8-bit and
 16-bit types and `float16`. `bfloat16` is the 16-bit word fill followed by the scaling.
 
+Parallel use: element `i` of a fill is draw `i`, so ranks, threads or devices that start at the
+position of their first element, or draw from `split(task)`, reproduce a serial run for any
+decomposition, as
+[Appendix B](https://github.com/tandem-rng/spec/blob/main/SPEC.md#appendix-b-parallel-decomposition-non-normative)
+of the specification shows.
+
 ## Install
 
 ```sh
