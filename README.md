@@ -58,7 +58,8 @@ round the float32 normal. Empty bounded and normal fills leave the position alon
 `randint(low, high, size, dtype=torch.int64, device="cpu")` draws on `[low, high)`. A range of
 at most 2^32 takes one 32-bit draw per element (`tandem_fill_u32_below` on CPU,
 `tandem::fill_u32_below` on CUDA), a larger range one 64-bit draw. Both use Lemire's method and
-a rejected draw retries on a fallback stream, so CPU and CUDA give the same values and every
+a rejected draw retries on a fallback stream keyed by its global draw index, so a fill cut at
+any element equals the whole fill and CPU and CUDA give the same values and every
 element consumes exactly one draw. `randperm(n)` is Fisher-Yates from the end with one
 sequential scalar bounded draw per swap, `tandem_u32_below` over the stream, so the CPU
 defines it and a CUDA result is copied from there. `shuffle(x, dim=0)` indexes `x` with a
@@ -130,38 +131,20 @@ NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 2
 | `torch.rand` float32 / float64 | 1100 / 1197 |
 | `Tandem.bits` uint32 | 1334 |
 | `Tandem` fill uint8 / bool / float16 | 1174 / 1100 / 1313 |
-| `Tandem.randint` int32 `[0, 1000)`, `out=` / allocating | 1316 / 1313 |
-| `torch.randint` int32 `[0, 1000)` | 840 |
-| `Tandem.randint` int32 full range | 396 |
+| `Tandem.randint` int32 `[0, 1000)`, `out=` / allocating | 1285 / 1268 |
+| `torch.randint` int32 `[0, 1000)` | 839 |
+| `Tandem.randint` int32 full range | 1252 |
 | `torch.randint` int32 full range | 332 |
-| `Tandem.randint` int64 `[0, 1000)` | 602 |
-| `torch.randint` int64 `[0, 1000)` | 1292 |
-| `Tandem.randint` int64 `[-2^62, 2^62)` | 323 |
-| `torch.randint` int64 `[-2^62, 2^62)` | 628 |
+| `Tandem.randint` int64 `[0, 1000)` | 979 |
+| `torch.randint` int64 `[0, 1000)` | 1295 |
+| `Tandem.randint` int64 `[-2^62, 2^62)` | 1255 |
+| `torch.randint` int64 `[-2^62, 2^62)` | 621 |
 | `Tandem.randn` float32 `out=` / allocating | 1138 / 1125 |
 | `torch.randn` float32 | 774 |
 | `Tandem.randn` float64 `out=` / allocating | 705 / 693 |
 | `torch.randn` float64 | 583 |
 
-`randint` and `randn` take `out=` and then write into it, otherwise they allocate. The bounded
-kernel itself runs at about 1100 to 1300 GiB/s for a small range but near 650 for a range close
-to 2^32 or above, where each element divides to find the rejection threshold. A nonzero offset
-and an int64 result from 32-bit draws are separate passes over the output after the kernel,
-which is why the int64 and full-range int32 rows sit below the small-range int32 row.
-
-The CPU path is the C row engine, the CUDA path is the shared-memory tile kernel. At 2^27
-elements the tile reads a little below its 2^28 rate because launch and clock ramp are a
-larger share of the time.
-
-## AI assistance
-
-This port was written with the help of large language models under human
-direction. The design and the specification are human work, as is much of the
-Julia implementation. The code is tested bit for bit against every vector of
-the specification and against long stream dumps from the Julia implementation,
-and every value must match. The output does not depend on who or what wrote the
-code.
-
-## License
-
-Apache License 2.0. See `LICENSE` and `NOTICE`.
+`randint` and `randn` take `out=` and then write into it, otherwise they allocate. On CUDA,
+`randint` into int32, uint32, int64 or uint64 adds the low bound and widens inside the bounded
+kernel (`tandem::fill_u32_below` and `fill_u64_below` with a low bound), so there is no second
+pass over the output. Other dtypes, and a range of exactly 2^32 or 2^64, take the unfused path.

@@ -139,6 +139,7 @@ std::pair<std::vector<Key>, uint64_t> fork_keys(const Key &key, uint64_t pos, ui
 #ifdef TANDEM_TORCH_CUDA
 uint64_t fill_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K);
 uint64_t fill_below_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range);
+uint64_t randint_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range, int64_t low);
 uint64_t fill_normal_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K);
 #endif
 
@@ -155,6 +156,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 #ifdef TANDEM_TORCH_CUDA
     m.def("fill_cuda", &fill_cuda);
     m.def("fill_below_cuda", &fill_below_cuda);
+    m.def("randint_cuda", &randint_cuda);
     m.def("fill_normal_cuda", &fill_normal_cuda);
     m.attr("has_cuda") = true;
 #else

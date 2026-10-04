@@ -448,6 +448,19 @@ def test_cuda_randint_equals_cpu(r):
 
 
 @CUDA
+@pytest.mark.parametrize("dtype,lo,hi", [
+    (torch.int32, -7, 1000), (torch.uint32, 5, 2**31 + 1), (torch.int64, -2**40, 1000),
+    (torch.uint64, 2**63, 2**63 + 2**40), (torch.int64, -2**62, 2**62), (torch.int8, -3, 100)])
+def test_cuda_randint_fused_low_and_widening_equal_cpu(dtype, lo, hi):
+    key = tt.Tandem(9).key
+    a, na = tt.randint(key, 33, lo, hi, 1001, dtype=dtype)
+    b, nb = tt.randint(key, 33, lo, hi, 1001, dtype=dtype, device="cuda")
+    out = torch.empty(1001, dtype=dtype, device="cuda")
+    c, nc = tt.randint(key, 33, lo, hi, out=out)
+    assert na == nb == nc and torch.equal(a, b.cpu()) and c is out and torch.equal(a, out.cpu())
+
+
+@CUDA
 def test_cuda_unaligned_storage():
     big = torch.empty(2**16 + 9, dtype=torch.uint32, device="cuda")
     view = big[1:]  # 4 bytes off a 16-byte boundary

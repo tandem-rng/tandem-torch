@@ -60,6 +60,40 @@ uint64_t fill_below_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32
     return next;
 }
 
+// The low bound and the widening are fused into the store, so there is no second pass over out.
+// A 32-bit range into a 32-bit or 64-bit element, a 64-bit range into a 64-bit element.
+uint64_t randint_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range, int64_t low) {
+    TORCH_CHECK(out.device().is_cuda() && out.is_contiguous(), "randint_cuda: need a contiguous CUDA tensor");
+    c10::cuda::CUDAGuard guard(out.device());
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    size_t n = (size_t)out.numel();
+    void *p = out.data_ptr();
+    const bool wide = range > UINT32_MAX;
+    uint64_t next;
+#define TANDEM_RANDINT(W, R, O) \
+    next = tandem::fill_##W##_below(key.data(), pos, K, (R)range, (O)low, static_cast<O *>(p), n, stream)
+    switch (out.scalar_type()) {
+    case torch::kInt:
+        TORCH_CHECK(!wide, "randint_cuda: range does not fit 32 bits");
+        TANDEM_RANDINT(u32, uint32_t, int32_t);
+        break;
+    case torch::kUInt32:
+        TORCH_CHECK(!wide, "randint_cuda: range does not fit 32 bits");
+        TANDEM_RANDINT(u32, uint32_t, uint32_t);
+        break;
+    case torch::kLong:
+        if (wide) TANDEM_RANDINT(u64, uint64_t, int64_t); else TANDEM_RANDINT(u32, uint32_t, int64_t);
+        break;
+    case torch::kUInt64:
+        if (wide) TANDEM_RANDINT(u64, uint64_t, uint64_t); else TANDEM_RANDINT(u32, uint32_t, uint64_t);
+        break;
+    default: TORCH_CHECK(false, "randint_cuda: dtype must be int32, uint32, int64 or uint64");
+    }
+#undef TANDEM_RANDINT
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return next;
+}
+
 uint64_t fill_normal_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K) {
     TORCH_CHECK(out.device().is_cuda() && out.is_contiguous(), "fill_normal_cuda: need a contiguous CUDA tensor");
     c10::cuda::CUDAGuard guard(out.device());

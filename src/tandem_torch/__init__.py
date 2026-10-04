@@ -133,6 +133,15 @@ def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=
         raise ValueError(f"need {info.min} <= low < high <= {info.max + 1} for {dtype}")
     shape = (size,) if isinstance(size, int) else tuple(size)
     r = high - low
+    if (torch.device(device).type == "cuda" and has_cuda and r not in (2**32, 2**64)
+            and dtype in ((torch.int32, torch.uint32) if r <= 2**32 else ()) + (torch.int64, torch.uint64)):
+        # One fused kernel adds low and widens into dtype. The device draws what the unfused
+        # path draws, since the width follows the range and not dtype.
+        t = out if out is not None and out.is_contiguous() else torch.empty(shape, dtype=dtype, device=device)
+        nxt = _ext.randint_cuda(t, _check_key(key), position, K, r, ((low + 2**63) % 2**64) - 2**63)
+        if t is not out and out is not None:
+            out.copy_(t)
+        return (out if out is not None else t), nxt
     # A result of the draw's width is filled in place, in `out` when it is contiguous.
     bits = 64 if r > 2**32 else 32
     dest = out.view(_U[bits]) if out is not None and info.bits == bits and out.is_contiguous() else None
