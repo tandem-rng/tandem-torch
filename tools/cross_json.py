@@ -15,11 +15,11 @@ def ints(text):
 
 
 def c_rows(text, name):
-    """Rows {n, want[64], end_pos} of a tandem-c table."""
+    """Rows {start, n, want[64], end_pos} of a tandem-c table."""
     body = re.search(rf"{name}\[\] = \{{(.*?)\n\}};", text, re.S).group(1)
     rows = []
-    for row in re.findall(r"\{(\d+)u(?:ll)?,\s*\{(.*?)\},\s*(\d+)u\}", body, re.S):
-        rows.append({"range": int(row[0]), "out": ints(row[1]), "end_pos": int(row[2])})
+    for row in re.findall(r"\{(\d+)ull, (\d+)u(?:ll)?,\s*\{(.*?)\},\s*(\d+)u\}", body, re.S):
+        rows.append({"start": int(row[0]), "range": int(row[1]), "out": ints(row[2]), "end_pos": int(row[3])})
     return rows
 
 
@@ -50,7 +50,7 @@ normal = (C_TESTS / "cross_normal.h").read_text()
 key = re.search(r"CROSS_FILL_KEY\[4\] = \{(.*?)\}", cuda).group(1)
 out = {
     "source": "external/tandem-c/tests and external/tandem-cuda/tests, made by tools/cross_json.py",
-    # Seed 42, one bool drawn first, so the fill starts at position 1.
+    # Seed 42, fills from the position `start` of each row.
     "c_fill_below32": c_rows(fill, "CROSS_FILL_U32"),
     "c_fill_below64": c_rows(fill, "CROSS_FILL_U64"),
     # The key of seed 42, K = 32, position 0.

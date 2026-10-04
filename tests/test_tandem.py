@@ -283,7 +283,7 @@ def test_bounded_fills_match_the_other_ports(device):
     assert tuple(CROSS["cuda_key"]) == key
     for wide, rows in ((False, CROSS["c_fill_below32"]), (True, CROSS["c_fill_below64"])):
         for row in rows:
-            got, nxt = below(device, key, 1, row["range"], 64, wide)
+            got, nxt = below(device, key, row["start"], row["range"], 64, wide)
             assert got == row["out"], (wide, row["range"])
             assert nxt == row["end_pos"]
     for wide, rows in ((False, CROSS["cuda_below32"]), (True, CROSS["cuda_below64"])):
@@ -311,6 +311,19 @@ def test_randint_ranges_and_widths(device):
     assert torch.equal(got.cpu(), tt.bits(key, 0, 9, dtype=torch.uint32)[0])
     got, _ = tt.randint(key, 0, -2**63, 2**63, 9, device=device)
     assert torch.equal(got.cpu(), tt.bits(key, 0, 9, dtype=torch.int64)[0] + (-2**63))
+
+
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("r", [2**31 + 1, 2**63 + 1])
+def test_randint_cut_at_any_boundary_equals_the_whole_call(device, r):
+    """The fallback of a rejected draw is keyed by the global draw index, so chunks of a fill
+    equal the fill. These ranges reject about half of the draws."""
+    key, n = tt.Tandem(77).key, 300
+    whole, end = tt.randint(key, 12345, 0, r, n, dtype=torch.uint64, device=device)
+    for cut in (1, 77, 151, 299):
+        a, mid = tt.randint(key, 12345, 0, r, cut, dtype=torch.uint64, device=device)
+        b, end2 = tt.randint(key, mid, 0, r, n - cut, dtype=torch.uint64, device=device)
+        assert torch.equal(torch.cat([a, b]).cpu(), whole.cpu()) and end2 == end, cut
 
 
 def test_randint_dtype_bounds():
