@@ -93,22 +93,24 @@ NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 2
 
 | | GiB/s |
 |---|---|
-| `Tandem.rand` float32 / float64 | 1330 / 1364 |
-| `torch.rand` float32 / float64 | 1100 / 1197 |
-| `Tandem.bits` uint32 | 1334 |
-| `Tandem` fill uint8 / bool / float16 | 1174 / 1100 / 1313 |
-| `Tandem.randint` int32 `[0, 1000)`, `out=` / allocating | 1285 / 1268 |
-| `torch.randint` int32 `[0, 1000)` | 839 |
-| `Tandem.randint` int32 full range | 1252 |
-| `torch.randint` int32 full range | 332 |
-| `Tandem.randint` int64 `[0, 1000)` | 1331 |
-| `torch.randint` int64 `[0, 1000)` | 1282 |
-| `Tandem.randint` int64 `[-2^62, 2^62)` | 1255 |
-| `torch.randint` int64 `[-2^62, 2^62)` | 621 |
-| `Tandem.randn` float32 `out=` / allocating | 1138 / 1125 |
-| `torch.randn` float32 | 774 |
-| `Tandem.randn` float64 `out=` / allocating | 705 / 693 |
-| `torch.randn` float64 | 583 |
+| `Tandem.rand` float32 / float64 | 1360 / 1381 |
+| `torch.rand` float32 / float64 | 1242 / 1313 |
+| `Tandem.bits` uint32 | 1364 |
+| `Tandem` fill uint8 / bool / float16 | 1272 / 1090 / 1306 |
+| `Tandem.randint` int32 `[0, 1000)`, `out=` / allocating | 1316 / 1316 |
+| `torch.randint` int32 `[0, 1000)` | 909 |
+| `Tandem.randint` int32 full range | 1309 |
+| `torch.randint` int32 full range | 324 |
+| `Tandem.randint` int64 `[0, 1000)` | 1351 |
+| `torch.randint` int64 `[0, 1000)` | 1306 |
+| `Tandem.randint` int64 `[-2^62, 2^62)` | 1338 |
+| `torch.randint` int64 `[-2^62, 2^62)` | 632 |
+| `Tandem.randn` float32 `out=` / allocating | 1255 / 1265 |
+| `torch.randn` float32 | 913 |
+| `Tandem.randn` float64 `out=` / allocating | 908 / 983 |
+| `torch.randn` float64 | 587 |
+| `Tandem.exponential` float32 / float64 | 986 / 913 |
+| `Tensor.exponential_` float32 / float64 | 1003 / 562 |
 
 `randint` and `randn` write into `out=` when given, otherwise they allocate.
 
