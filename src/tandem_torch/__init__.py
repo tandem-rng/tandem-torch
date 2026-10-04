@@ -154,10 +154,17 @@ def randint(key, position, low, high, size, *, dtype=torch.int64, device="cpu", 
         raise ValueError(f"need {info.min} <= low < high <= {info.max + 1} for {dtype}")
     shape = (size,) if isinstance(size, int) else tuple(size)
     d, nxt = _below(_check_key(key), position, K, high - low, math.prod(shape), device)
-    # Wrapping int64 addition gives the right value mod 2^64, which is exact once it fits dtype.
-    t = d.to(torch.int64) if d.dtype == torch.uint32 else d.view(torch.int64)
-    t.add_(((low + 2**63) % 2**64) - 2**63)
-    t = t.view(torch.uint64) if dtype == torch.uint64 else t.to(dtype)
+    # A draw added to low in wrapping arithmetic of the draw's width is exact once the result
+    # fits dtype. The words of an int32 or int64 result are filled in place, others convert.
+    if d.dtype == torch.uint32 and dtype in (torch.int32, torch.uint32):
+        t, bits = d.view(torch.int32), 32
+    elif d.dtype == torch.uint64 and dtype in (torch.int64, torch.uint64):
+        t, bits = d.view(torch.int64), 64
+    else:
+        t, bits = d.to(torch.int64), 64
+    if low:
+        t.add_(((low + 2**(bits - 1)) % 2**bits) - 2**(bits - 1))
+    t = t.view(dtype) if info.bits == bits else t.to(dtype)
     return t.view(shape), nxt
 
 

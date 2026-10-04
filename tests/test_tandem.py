@@ -293,6 +293,18 @@ def test_randint_dtype_bounds():
         t.randint(4, 4, 3)
 
 
+@pytest.mark.parametrize("dtype,low,high", [
+    (torch.int32, -9, 1000), (torch.int32, -2**31, 2**31 - 1), (torch.uint32, 2**31 - 5, 2**32 - 1),
+    (torch.int16, -300, 300), (torch.uint64, 2**64 - 2**33, 2**64 - 1)])
+def test_randint_dtypes_are_the_shifted_draws(dtype, low, high):
+    """The in-place paths for 32-bit and 64-bit results and the converting paths give the
+    same integers as the draws below high - low plus low."""
+    key = tt.Tandem(8).key
+    got, nxt = tt.randint(key, 0, low, high, 1000, dtype=dtype)
+    d, nxt0 = below("cpu", key, 0, high - low, 1000, high - low > 2**32)
+    assert got.tolist() == [x + low for x in d] and nxt == nxt0
+
+
 def lemire(words, n):
     """One scalar draw below n over an iterator of 32-bit stream words, as tandem_u32_below."""
     while True:
