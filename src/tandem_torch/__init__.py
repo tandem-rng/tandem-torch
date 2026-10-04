@@ -173,8 +173,9 @@ def randn(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     ``tandem::fill_normal_f64`` and ``_f32`` on CUDA. Elements 2j and 2j + 1 are the cos and sin
     halves of one step from the uniforms 2j and 2j + 1 of the plain float fill, so an odd count
     still consumes both uniforms of its last pair. A float64 normal pair takes 128 stream bits
-    and a float32 pair 64, in float arithmetic. The libm and CUDA math functions differ in the
-    last bits, so devices agree to a few ulps. Other float dtypes round the float32 normal. An
+    and a float32 pair 64, in float arithmetic. Float64 normals on both devices and float32
+    normals on the CPU equal tandem-c bit for bit. CUDA float32 normals use the fast sincos and
+    agree to 16 ulps. Other float dtypes round the float32 normal. An
     empty fill leaves the position alone. A contiguous float32 or float64 ``out`` is filled in
     place. Not part of the specification. Returns
     ``(tensor, next_position)``."""

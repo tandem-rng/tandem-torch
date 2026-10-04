@@ -21,7 +21,9 @@ def tandem_object():
     out = os.path.join(here, "build", "tandem.o")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     cc = os.environ.get("CC") or sysconfig.get_config_var("CC") or "cc"
-    cmd = cc.split() + ["-std=c99", "-O2", "-fPIC", "-c", "-o", out, os.path.join(tandem_c, "tandem.c")]
+    # Contraction off as in tandem-c's Makefile, so the normals and exponentials stay bit exact.
+    cmd = cc.split() + ["-std=c11", "-O2", "-ffp-contract=off", "-fPIC", "-c", "-o", out,
+                        os.path.join(tandem_c, "tandem.c")]
     subprocess.check_call(cmd)
     return out
 
@@ -35,7 +37,7 @@ kwargs = dict(
     include_dirs=[tandem_c, tandem_cuda, os.path.join(tandem_cuda, "include")],
     extra_objects=[tandem_object()],
     extra_compile_args={"cxx": ["-O2"]},
-    # tandem.c calls log, sqrt and cos for the normals.
+    # tandem.c calls sqrt and fma.
     extra_link_args=["-lm"],
 )
 if with_cuda == "1":

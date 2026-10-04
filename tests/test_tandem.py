@@ -1,5 +1,6 @@
 """Agreement with the specification vectors and the Julia dumps, on CPU and, if present, CUDA."""
 
+import hashlib
 import json
 import pickle
 from pathlib import Path
@@ -191,30 +192,43 @@ def test_randn_moments(device, dtype):
     assert abs(z.std().item() - 1) < 0.01
 
 
-def close(got, want, dtype):
-    """1e-12 relative for float64, 16 ulps and 1e-6 absolute for float32, which covers the
-    device's fast sincos."""
-    want = torch.tensor(want, dtype=torch.float64)
-    tol, floor = (1e-12, 0) if dtype == torch.float64 else (16 * 2.0**-23, 1e-6)
-    return bool(((got.cpu().double() - want).abs() <= tol * want.abs() + floor).all())
+def same_normals(got, want):
+    """Bit for bit, except float32 on CUDA, whose fast sincos is within 16 ulps and 1e-6."""
+    want = torch.tensor(want, dtype=got.dtype)
+    if got.dtype == torch.float32 and got.is_cuda:
+        got, want = got.cpu().double(), want.double()
+        return bool(((got - want).abs() <= 16 * 2.0**-23 * want.abs() + 1e-6).all())
+    return torch.equal(got.cpu(), want)
 
 
 @pytest.mark.parametrize("device", DEVICES)
 def test_randn_matches_the_other_ports(device):
-    """The pairs of tandem-cuda's Box-Muller after one bool, and its fills from the key of
-    seed 42 at several positions, odd counts included. The positions are exact."""
+    """The pairs of tandem-c's Box-Muller after one bool, and tandem-cuda's fills from the key
+    of seed 42 at several positions, odd counts included."""
     for dtype, want, end in ((torch.float64, CROSS["normal_f64"], CROSS["normal_f64_end_pos"]),
                              (torch.float32, CROSS["normal_f32"], CROSS["normal_f32_end_pos"])):
         t = tt.Tandem(42)
         t.randbool(1)
-        assert close(t.randn(len(want), dtype=dtype, device=device), want, dtype), dtype
+        assert same_normals(t.randn(len(want), dtype=dtype, device=device), want), dtype
         assert t.position == end
     key = tuple(CROSS["cuda_key"])
     for dtype, rows, w in ((torch.float64, CROSS["cuda_normal64"], 64), (torch.float32, CROSS["cuda_normal32"], 32)):
         for row in rows:
             z, nxt = tt.randn(key, row["pos"], row["n"], dtype=dtype, device=device)
-            assert close(z, row["out"], dtype), (dtype, row["pos"])
+            assert same_normals(z, row["out"]), (dtype, row["pos"])
             assert nxt == -(-row["pos"] // w) * w + (row["n"] + 1) // 2 * 2 * w
+
+
+def test_randn_bits_match_tandem_c():
+    """The bytes of tandem-c's tools/dump_normals.c: 2e6 - 1 float64 then float32 normals from
+    five positions. tandem-c records their FNV-1a hash 0x9414e1315e2653be, this test SHA-256."""
+    h = hashlib.sha256()
+    key = tt.Tandem(2026 + (7 << 64)).key
+    for start in (0, 1, 77, 12345, 1 << 30):
+        z, nxt = tt.randn(key, start, 2_000_000 - 1)
+        h.update(z.numpy().tobytes())
+        h.update(tt.randn(key, nxt, 2_000_000 - 1, dtype=torch.float32)[0].numpy().tobytes())
+    assert h.hexdigest() == "cfae418807a7d5f91ecd3e42c33a00943690c6e4b888ee39206738783efe9ded"
 
 
 @pytest.mark.parametrize("device", DEVICES)
@@ -432,9 +446,7 @@ def test_cuda_normals_equal_cpu(dtype):
         for n in (0, 1, 7, 1001, 2**16 + 3):
             a, na = tt.randn((0xabc, pos, n, 1), pos, n, dtype=dtype)
             b, nb = tt.randn((0xabc, pos, n, 1), pos, n, dtype=dtype, device="cuda")
-            assert na == nb
-            assert torch.allclose(a.double(), b.cpu().double(), rtol=1e-5 if dtype == torch.float32 else 1e-11,
-                                  atol=1e-6 if dtype == torch.float32 else 1e-12), (dtype, pos, n)
+            assert na == nb and same_normals(b, a.tolist()), (dtype, pos, n)
 
 
 @CUDA

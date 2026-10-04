@@ -16,7 +16,7 @@ pip install --no-build-isolation .
 
 The build needs a C and C++ compiler, and builds the CUDA fills when `nvcc` is on the path or
 `CUDA_HOME` is set. `TANDEM_TORCH_CUDA=0` or `1` forces the choice. The submodules
-`external/tandem-c` (2b6e075) and `external/tandem-cuda` (b65745a) hold the reference sources.
+`external/tandem-c` (4e9a69f) and `external/tandem-cuda` (c5c5725) hold the reference sources.
 `pixi install` gives a CPU environment, `pixi install -e cuda` a Linux GPU environment.
 
 Full notes on dtypes, normals, bounded draws, tests and speed: [docs/notes.md](docs/notes.md).
@@ -55,7 +55,7 @@ requires. The functional forms `tandem_torch.rand(key, position, *shape, ...)` a
   `float32`, `float64`, `complex64` and `complex128`.
 - `rand` with `bfloat16`: an extension, `(raw16 >> 8) * 2^-8`, not in the specification.
 - `randint(low, high, size, dtype, device, out=)`: Lemire's method, same values on CUDA.
-- `randn(*shape, out=)`: Box-Muller from tandem-cuda. Devices agree to a few ulps.
+- `randn(*shape, out=)`: Box-Muller from tandem-cuda. Bit exact except CUDA float32, within 16 ulps.
 - `randperm(n)`, `shuffle(x, dim)`: Fisher-Yates, defined on the CPU, `n < 2^32`.
 - `at(dtype, i)`: element `i` of the next fill without advancing, for 32 and 64-bit types.
 - `split(index)`, `fork(n)`, `sub(purpose)`: child generators.

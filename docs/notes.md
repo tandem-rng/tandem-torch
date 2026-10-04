@@ -40,8 +40,10 @@ bits.
 are the cos and sin halves of one step from the uniforms 2j and 2j + 1 of the plain float fill,
 so an odd count still consumes both uniforms of its last pair. A float64 pair takes 128 stream
 bits and a float32 pair 64, with float32 computed in float (`tandem_fill_normal_f64` and `_f32`
-on CPU, `tandem::fill_normal_f64` and `_f32` on CUDA). Library `sin`, `cos` and `log` differ in
-the last bits, so devices agree to a few ulps and not bit for bit. `float16` and `bfloat16`
+on CPU, `tandem::fill_normal_f64` and `_f32` on CUDA). The CPU fills and the CUDA float64
+fill share one polynomial log, sin and cos with explicit fused multiply-adds, so they equal
+tandem-c bit for bit. The CUDA float32 fill uses `logf` and the fast `__sincosf` and agrees to
+16 ulps. `float16` and `bfloat16`
 round the float32 normal. Empty bounded and normal fills leave the position alone.
 
 `randint(low, high, size, dtype=torch.int64, device="cpu")` draws on `[low, high)`. A range of

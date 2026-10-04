@@ -46,6 +46,7 @@ def floats(text, name, ctype):
 fill = (C_TESTS / "cross_fill_below.h").read_text()
 cuda = (CUDA_TESTS / "cross_fill_below.h").read_text()
 cuda_normal = (CUDA_TESTS / "cross_fill_normal.h").read_text()
+cuda_exp = (CUDA_TESTS / "cross_fill_exponential.h").read_text()
 normal = (C_TESTS / "cross_normal.h").read_text()
 key = re.search(r"CROSS_FILL_KEY\[4\] = \{(.*?)\}", cuda).group(1)
 out = {
@@ -60,6 +61,8 @@ out = {
     # Fills from the key of seed 42, K = 32, at the given position.
     "cuda_normal64": normal_rows(cuda_normal, "CROSS_NORMAL64"),
     "cuda_normal32": normal_rows(cuda_normal, "CROSS_NORMAL32"),
+    "cuda_exp64": normal_rows(cuda_exp, "CROSS_EXP64"),
+    "cuda_exp32": normal_rows(cuda_exp, "CROSS_EXP32"),
     # Pairs after one bool from seed 42: element 2i is the cos half, 2i + 1 the sin half.
     "normal_f64": floats(normal, "CROSS_NORMAL", "double"),
     "normal_f64_end_pos": int(re.search(r"CROSS_NORMAL_END_POS = (\d+)u", normal).group(1)),
