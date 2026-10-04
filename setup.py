@@ -35,6 +35,8 @@ kwargs = dict(
     include_dirs=[tandem_c, tandem_cuda, os.path.join(tandem_cuda, "include")],
     extra_objects=[tandem_object()],
     extra_compile_args={"cxx": ["-O2"]},
+    # tandem.c calls log, sqrt and cos for the normals.
+    extra_link_args=["-lm"],
 )
 if with_cuda == "1":
     sources.append(f"{pkg}/_cuda.cu")
