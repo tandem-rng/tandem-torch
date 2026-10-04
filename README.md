@@ -88,6 +88,10 @@ Apple M4, one thread, minimum of 7:
 | `torch.rand` float32 / float64 | 3.3 / 4.8 |
 | `Tandem.bits` uint32 | 20.2 |
 | `torch.randint` int32 | 2.3 |
+| `Tandem.randn` float32 / float64, 2^22, minimum of 5 | 5.38 / 4.84 |
+| `torch.randn` float32 / float64, 2^22, minimum of 5 | 0.55 / 1.02 |
+| `Tandem.exponential` float32 / float64, 2^22, minimum of 5 | 6.51 / 5.95 |
+| `Tensor.exponential_` float32 / float64, 2^22, minimum of 5 | 0.52 / 1.03 |
 
 NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 21:
 
