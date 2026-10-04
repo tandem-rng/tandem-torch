@@ -47,12 +47,13 @@ imaginary component as in the specification. `bfloat16` is a tandem-torch extens
 the specification: `(raw16 >> 8) * 2^-8` of a 16-bit word, the float16 rule with 8 fraction
 bits.
 
-`randn` is Box-Muller as in tandem-cuda's `Rng::normal` and `Rng::normalf`, not part of the
-specification. A float64 normal is made from two float64 uniforms, 128 stream bits, a float32
-normal from two float32 uniforms, 64 bits, in float arithmetic (`tandem_fill_normal_f64` and
-`_f32` on CPU, `tandem::fill_normal_f64` and `_f32` on CUDA). Library `log` and `cos` differ in
+`randn` is Box-Muller as in tandem-cuda, not part of the specification. Elements 2j and 2j + 1
+are the cos and sin halves of one step from the uniforms 2j and 2j + 1 of the plain float fill,
+so an odd count still consumes both uniforms of its last pair. A float64 pair takes 128 stream
+bits and a float32 pair 64, with float32 computed in float (`tandem_fill_normal_f64` and `_f32`
+on CPU, `tandem::fill_normal_f64` and `_f32` on CUDA). Library `sin`, `cos` and `log` differ in
 the last bits, so devices agree to a few ulps and not bit for bit. `float16` and `bfloat16`
-round the float32 normal.
+round the float32 normal. Empty bounded and normal fills leave the position alone.
 
 `randint(low, high, size, dtype=torch.int64, device="cpu")` draws on `[low, high)`. A range of
 at most 2^32 takes one 32-bit draw per element (`tandem_fill_u32_below` on CPU,
@@ -123,15 +124,13 @@ NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 2
 | `torch.rand` float32 / float64 | 1100 / 1197 |
 | `Tandem.bits` uint32 | 1334 |
 | `Tandem` fill uint8 / bool / float16 | 1174 / 1100 / 1313 |
-| `torch.randint` int32 | 336 |
-| `Tandem.randint` int32 | 409 |
-| `Tandem.randn` float32 / float64 | 535 / 340 |
-| `torch.randn` float32 / float64 | 860 / 570 |
+| `torch.randint` int32 | 332 |
+| `Tandem.randint` int32 | 393 |
+| `Tandem.randn` float32 / float64 | 1117 / 694 |
+| `torch.randn` float32 / float64 | 767 / 569 |
 
 `Tandem.randint` and `Tandem.randn` allocate their result, the `torch` calls and the other
-rows write into a preallocated tensor. A float64 normal takes 128 stream bits and a float32
-normal 64, so `randn` writes the output at a fraction of the rate of `rand`. The A100 figures
-vary by about 15 % between runs for `randn`.
+rows write into a preallocated tensor.
 
 The CPU path is the C row engine, the CUDA path is the shared-memory tile kernel. At 2^27
 elements the tile reads a little below its 2^28 rate because launch and clock ramp are a

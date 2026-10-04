@@ -141,20 +141,18 @@ def randint(key, position, low, high, size, *, dtype=torch.int64, device="cpu", 
 
 def randn(key, position, *shape, dtype=torch.float64, device="cpu", K=32):
     """Standard normals by Box-Muller, as ``tandem_fill_normal_f64`` and ``_f32`` on CPU and
-    ``tandem::fill_normal_f64`` and ``_f32`` on CUDA. A float64 normal is made from two float64
-    uniforms (128 stream bits), a float32 normal from two float32 uniforms (64 bits) in float
-    arithmetic. The libm and CUDA math functions differ in the last bits, so devices agree to a
-    few ulps. Other float dtypes round the float32 normal. Not part of the specification.
-    Returns ``(tensor, next_position)``."""
+    ``tandem::fill_normal_f64`` and ``_f32`` on CUDA. Elements 2j and 2j + 1 are the cos and sin
+    halves of one step from the uniforms 2j and 2j + 1 of the plain float fill, so an odd count
+    still consumes both uniforms of its last pair. A float64 normal pair takes 128 stream bits
+    and a float32 pair 64, in float arithmetic. The libm and CUDA math functions differ in the
+    last bits, so devices agree to a few ulps. Other float dtypes round the float32 normal. An
+    empty fill leaves the position alone. Not part of the specification. Returns
+    ``(tensor, next_position)``."""
     if dtype not in _FLOATS:
         raise TypeError(f"unsupported dtype {dtype} for randn")
     native = dtype if dtype in (torch.float32, torch.float64) else torch.float32
     t = torch.empty(shape, dtype=native, device=device)
     key = _check_key(key)
-    if t.numel() == 0:
-        # tandem-c's empty normal fill leaves the position unaligned, tandem-cuda's and every
-        # other fill align it. Align here so both devices and all dtypes agree.
-        return t.to(dtype), _align(position, 8 * t.element_size())
     if t.device.type == "cpu":
         nxt = _ext.fill_normal_cpu(t, key, position, K)
     elif t.device.type == "cuda" and has_cuda:

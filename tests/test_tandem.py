@@ -191,20 +191,39 @@ def test_randn_moments(device, dtype):
     assert abs(z.std().item() - 1) < 0.01
 
 
+def close(got, want, dtype):
+    """1e-12 relative for float64, 16 ulps and 1e-6 absolute for float32, which covers the
+    device's fast sincos."""
+    want = torch.tensor(want, dtype=torch.float64)
+    tol, floor = (1e-12, 0) if dtype == torch.float64 else (16 * 2.0**-23, 1e-6)
+    return bool(((got.cpu().double() - want).abs() <= tol * want.abs() + floor).all())
+
+
 @pytest.mark.parametrize("device", DEVICES)
 def test_randn_matches_the_other_ports(device):
-    """Box-Muller values of tandem-cuda's Rng::normal and normalf after one bool. libm and
-    device math differ in the last bits: 1e-12 relative for float64, 8 ulps and 1e-6 absolute
-    for float32. The positions are exact."""
-    for dtype, want, end, tol in ((torch.float64, CROSS["normal_f64"], CROSS["normal_f64_end_pos"], 1e-12),
-                                  (torch.float32, CROSS["normal_f32"], CROSS["normal_f32_end_pos"], 8 * 2.0**-23)):
+    """The pairs of tandem-cuda's Box-Muller after one bool, and its fills from the key of
+    seed 42 at several positions, odd counts included. The positions are exact."""
+    for dtype, want, end in ((torch.float64, CROSS["normal_f64"], CROSS["normal_f64_end_pos"]),
+                             (torch.float32, CROSS["normal_f32"], CROSS["normal_f32_end_pos"])):
         t = tt.Tandem(42)
         t.randbool(1)
-        z = t.randn(64, dtype=dtype, device=device).cpu().double()
-        want = torch.tensor(want, dtype=torch.float64)
-        floor = 1e-6 if dtype == torch.float32 else 0
-        assert ((z - want).abs() <= tol * want.abs() + floor).all(), dtype
+        assert close(t.randn(len(want), dtype=dtype, device=device), want, dtype), dtype
         assert t.position == end
+    key = tuple(CROSS["cuda_key"])
+    for dtype, rows, w in ((torch.float64, CROSS["cuda_normal64"], 64), (torch.float32, CROSS["cuda_normal32"], 32)):
+        for row in rows:
+            z, nxt = tt.randn(key, row["pos"], row["n"], dtype=dtype, device=device)
+            assert close(z, row["out"], dtype), (dtype, row["pos"])
+            assert nxt == -(-row["pos"] // w) * w + (row["n"] + 1) // 2 * 2 * w
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_empty_bounded_and_normal_fills_keep_the_position(device):
+    key = tt.Tandem(5).key
+    for dtype in (torch.float32, torch.float64):
+        assert tt.randn(key, 37, 0, dtype=dtype, device=device)[1] == 37
+    for r in (3, 2**40):
+        assert tt.randint(key, 37, 0, r, 0, device=device)[1] == 37
 
 
 def test_randn_rounds_narrow_dtypes_from_float32():

@@ -29,13 +29,23 @@ def cuda_rows(text, name):
             for r, rej, out in re.findall(r"\{(\d+)u(?:ll)?, (\d+), \{(.*?)\}\}", body, re.S)]
 
 
+def normal_rows(text, name):
+    body = re.search(rf"{name}\[\] = \{{(.*?)\n\}};", text, re.S).group(1)
+    rows = []
+    for pos, n, out in re.findall(r"\{(\d+)ull, (\d+), \{(.*?)\}\}", body, re.S):
+        vals = [float(x.rstrip("f")) for x in re.findall(r"[-+0-9.e]+f?", out)]
+        rows.append({"pos": int(pos), "n": int(n), "out": vals[:int(n)]})
+    return rows
+
+
 def floats(text, name, ctype):
-    body = re.search(rf"{ctype} {name}\[CROSS_NORMAL_COUNT\] = \{{(.*?)\}};", text, re.S).group(1)
+    body = re.search(rf"{ctype} {name}\[2 \* CROSS_NORMAL_COUNT\] = \{{(.*?)\}};", text, re.S).group(1)
     return [float(x.rstrip("f")) for x in re.findall(r"[-+0-9.e]+f?", body)]
 
 
 fill = (C_TESTS / "cross_fill_below.h").read_text()
 cuda = (CUDA_TESTS / "cross_fill_below.h").read_text()
+cuda_normal = (CUDA_TESTS / "cross_fill_normal.h").read_text()
 normal = (C_TESTS / "cross_normal.h").read_text()
 key = re.search(r"CROSS_FILL_KEY\[4\] = \{(.*?)\}", cuda).group(1)
 out = {
@@ -47,6 +57,10 @@ out = {
     "cuda_key": [int(x, 16) for x in re.findall(r"0x([0-9a-f]+)u", key)],
     "cuda_below32": cuda_rows(cuda, "CROSS_BELOW32"),
     "cuda_below64": cuda_rows(cuda, "CROSS_BELOW64"),
+    # Fills from the key of seed 42, K = 32, at the given position.
+    "cuda_normal64": normal_rows(cuda_normal, "CROSS_NORMAL64"),
+    "cuda_normal32": normal_rows(cuda_normal, "CROSS_NORMAL32"),
+    # Pairs after one bool from seed 42: element 2i is the cos half, 2i + 1 the sin half.
     "normal_f64": floats(normal, "CROSS_NORMAL", "double"),
     "normal_f64_end_pos": int(re.search(r"CROSS_NORMAL_END_POS = (\d+)u", normal).group(1)),
     "normal_f32": floats(normal, "CROSS_NORMALF", "float"),
