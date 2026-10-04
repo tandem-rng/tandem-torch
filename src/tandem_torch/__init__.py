@@ -13,7 +13,7 @@ import torch
 
 from . import _ext
 
-__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "randn", "has_cuda"]
+__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "randn", "at", "has_cuda"]
 
 has_cuda = _ext.has_cuda
 
@@ -164,6 +164,25 @@ def randn(key, position, *shape, dtype=torch.float64, device="cpu", K=32):
     return t.to(dtype), nxt
 
 
+_AT = {torch.uint32: ("u32", 32, False), torch.int32: ("u32", 32, True),
+       torch.uint64: ("u64", 64, False), torch.int64: ("u64", 64, True),
+       torch.float32: ("f32", 32, False), torch.float64: ("f64", 64, False)}
+
+
+def at(key, position, dtype, i, K=32):
+    """Element ``i`` of the fill of ``dtype`` that would start at ``position``, as a Python
+    number, without a fill. Only the dtypes of the other ports' random access are supported:
+    the 32-bit and 64-bit integers and floats."""
+    if dtype not in _AT:
+        raise TypeError(f"at supports int32, uint32, int64, uint64, float32 and float64, not {dtype}")
+    i = int(i)
+    if not 0 <= i < 2**63:
+        raise ValueError("i must be in [0, 2**63)")
+    kind, w, signed = _AT[dtype]
+    x = _ext.at(_check_key(key), _check_position(position), _check_K(K), kind, i)
+    return x - 2**w if signed and x >= 2**(w - 1) else x
+
+
 def randperm(key, position, n, *, dtype=torch.int64, device="cpu", K=32):
     """A uniform permutation of ``range(n)`` by Fisher-Yates from the end: for i = n-1 down to
     1, swap element i with element j, where j is a scalar draw below i + 1 (Lemire, one draw
@@ -238,6 +257,11 @@ class Tandem:
     def randbool(self, *shape, device="cpu", out=None):
         """One stream bit per element."""
         return self.bits(*shape, dtype=torch.bool, device=device, out=out)
+
+    def at(self, dtype, i):
+        """Element ``i`` of the fill of ``dtype`` that would start at the current position,
+        without advancing, see :func:`at`."""
+        return at(self.key, self.position, dtype, i, self.chunk_length)
 
     def randint(self, low, high, size, *, dtype=torch.int64, device="cpu"):
         """Integers uniform on ``[low, high)``, see :func:`randint`."""

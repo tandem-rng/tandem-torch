@@ -124,6 +124,17 @@ def test_dumps(name, npdtype, dtype, device):
         assert torch.equal(part, want[start:]), (name, start)
 
 
+@pytest.mark.parametrize("dtype", [torch.uint32, torch.int32, torch.uint64, torch.int64,
+                                   torch.float32, torch.float64])
+def test_at_is_element_i_of_the_fill_without_advancing(dtype):
+    t = tt.Tandem(6, K=8)
+    t.position = 37  # not aligned to any width, so the alignment is part of the contract
+    idx = (0, 1, 31, 32, 1000, 4097)
+    want = tt.Tandem.from_key(t.key, 37, 8).fill_(torch.empty(4098, dtype=dtype))
+    assert [t.at(dtype, i) for i in idx] == [want[i].item() for i in idx]
+    assert t.position == 37
+
+
 def test_signed_types_reinterpret():
     u = tt.Tandem(3).bits(1000, dtype=torch.uint32)
     s = tt.Tandem(3).bits(1000, dtype=torch.int32)

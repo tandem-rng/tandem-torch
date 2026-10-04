@@ -28,6 +28,7 @@ i = t.randint(-5, 5, (4, 4))                     # int64 on [-5, 5), Lemire, sam
 p = t.randperm(10)                               # Fisher-Yates, defined on the CPU
 x = t.shuffle(torch.arange(12).view(3, 4), dim=1)
 t.fill_(torch.empty(4096, dtype=torch.float16))  # fill in place, any supported dtype
+x = t.at(torch.float32, 1000)                    # element 1000 of the next float32 fill, no advance
 worker = t.split(7)                              # by index, from the key alone
 kids = t.fork(4)                                 # from the current block, parent moves on
 t.key, t.position, t.chunk_length                # transport form
@@ -62,6 +63,11 @@ sequential scalar bounded draw per swap, `tandem_u32_below` over the stream, so 
 defines it and a CUDA result is copied from there. `shuffle(x, dim=0)` indexes `x` with a
 `randperm`. None of these is in the specification, and `randperm` needs `n < 2^32`.
 
+`at(dtype, i)` is random access: element `i` of the fill of `dtype` that would start at the
+current position, as a Python number, computed on the host without advancing. It supports
+`int32`, `uint32`, `int64`, `uint64`, `float32` and `float64`, the types random access has in
+tandem-c and tandem-cuda.
+
 On CUDA every dtype has its own fill kernel in `tandem.cuh`, including `bool`, the 8-bit and
 16-bit types and `float16`. `bfloat16` is the 16-bit word fill followed by the scaling.
 
@@ -85,14 +91,16 @@ a Linux GPU environment with nvcc 12.8 from conda-forge and PyTorch's cu128 whee
 ## Tests
 
 `tests/test_tandem.py` checks every vector of the specification (`tests/vectors.json`, a copy
-of the spec repository's file) and compares fills from several offsets with reference stream dumps in `tests/data`. With a CUDA device the suite also compares
-CUDA fills with CPU fills for every dtype, four chunk lengths, fourteen positions and nine
-lengths, and on storage that is not 16-byte aligned. `tests/cross.json`, made by
-`tools/cross_json.py` from the cross-check headers of the submodules, pins the bounded fills and the
-normals to the values of tandem-c and tandem-cuda on both devices. CI runs the CPU tests on Linux and
-macOS and fails when the vectors drift from upstream or a submodule pin is not on its
-upstream main. `tools/bump.sh` moves the pins to the latest main. The CUDA tests run by hand
-on a GPU host.
+of the spec repository's file) and compares fills from several offsets with the reference
+stream dumps in `tests/data`, complex types included. It checks `randint` and `randn` against
+`tests/cross.json`, which `tools/cross_json.py` makes from the cross-check headers of the
+submodules and which holds the values of tandem-c and tandem-cuda, `randperm` against a
+Python Fisher-Yates over the stream words, `bfloat16` against the 16-bit word fill and `at`
+against fills. With a CUDA device the suite also runs the cross-checks there and compares CUDA
+fills with CPU fills for every dtype, four chunk lengths, fourteen positions and nine lengths,
+and on storage that is not 16-byte aligned. CI runs the CPU tests on Linux and macOS and fails
+when the vectors drift from upstream or a submodule pin is not on its upstream main.
+`tools/bump.sh` moves the pins to the latest main. The CUDA tests run by hand on a GPU host.
 
 ## Speed
 

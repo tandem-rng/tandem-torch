@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -98,6 +99,16 @@ std::pair<torch::Tensor, uint64_t> randperm_cpu(int64_t n, const Key &key, uint6
     return {out, tandem_position(&rng)};
 }
 
+/* Element i of the fill that would start at `pos`, as a Python number. */
+py::object at_value(const Key &key, uint64_t pos, uint32_t K, const std::string &kind, uint64_t i) {
+    tandem_rng rng = make(key, pos, K);
+    if (kind == "u32") return py::int_(tandem_at_u32(&rng, i));
+    if (kind == "u64") return py::int_(tandem_at_u64(&rng, i));
+    if (kind == "f32") return py::float_(tandem_at_f32(&rng, i));
+    if (kind == "f64") return py::float_(tandem_at_f64(&rng, i));
+    TORCH_CHECK(false, "at: unknown kind ", kind);
+}
+
 Key seed_key(uint64_t lo, uint64_t hi) {
     return key_of(tandem_seed(lo, hi, 0));
 }
@@ -136,6 +147,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fill_below_cpu", &fill_below_cpu);
     m.def("fill_normal_cpu", &fill_normal_cpu);
     m.def("randperm_cpu", &randperm_cpu);
+    m.def("at", &at_value);
     m.def("seed", &seed_key);
     m.def("split", &split_key);
     m.def("sub", &sub_key);
