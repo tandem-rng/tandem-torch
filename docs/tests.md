@@ -1,6 +1,10 @@
 # Tests
 
-`pixi run test` runs `tests/test_tandem.py`.
+```sh
+pixi run test     # tests/test_tandem.py
+```
+
+## Suite
 
 - Every vector of the specification, from `tests/vectors.json`.
 - Stream dumps in `tests/data` from several offsets.
@@ -17,6 +21,13 @@ submodules and which holds the values of tandem-c and tandem-cuda, `randperm` ag
 Python Fisher-Yates over the stream words, `bfloat16` against the 16-bit word fill and `at`
 against fills. With a CUDA device the suite also runs the cross-checks there and compares CUDA
 fills with CPU fills for every dtype, four chunk lengths, fourteen positions and nine lengths,
-and on storage that is not 16-byte aligned. CI runs the CPU tests on Linux and macOS and fails
-when the vectors drift from upstream or a submodule pin is not on its upstream main.
-`tools/bump.sh` moves the pins to the latest main. The CUDA tests run by hand on a GPU host.
+and on storage that is not 16-byte aligned.
+
+## Fixtures
+
+`tools/bump.sh` moves the pins to the latest main.
+
+## CI
+
+CI runs the CPU tests on Linux and macOS and fails when the vectors drift from upstream or a
+submodule pin is not on its upstream main. The CUDA tests run by hand on a GPU host.

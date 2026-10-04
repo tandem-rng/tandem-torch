@@ -1,6 +1,10 @@
-# tandem-torch documentation
+# tandem-torch
+
+PyTorch tensors from Tandem8x32. CPU and CUDA fills write the stream of the
+[specification](https://github.com/tandem-rng/spec/blob/main/SPEC.md) bit for bit, fast on both.
 
 - [API](api.md): the generator, dtypes, normals, exponentials, bounded draws and parallel use.
+- [Design](design.md): the CUDA fills and the bounded, normal and exponential contracts.
 - [Tests](tests.md): what the suite checks.
 - [Speed](speed.md): M4 and A100 figures against torch.
 

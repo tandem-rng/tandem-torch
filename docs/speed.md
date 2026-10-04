@@ -1,6 +1,8 @@
 # Speed
 
-`python tools/bench.py [cpu|cuda]`, preallocated outputs, 2^27 elements.
+`python tools/bench.py [cpu|cuda]` produces the figures, with preallocated outputs and 2^27 elements.
+
+## CPU
 
 Apple M4, one thread, minimum of 7:
 
@@ -14,6 +16,8 @@ Apple M4, one thread, minimum of 7:
 | `torch.randn` float32 / float64, 2^22, minimum of 5 | 0.55 / 1.02 |
 | `Tandem.exponential` float32 / float64, 2^22, minimum of 5 | 6.51 / 5.95 |
 | `Tensor.exponential_` float32 / float64, 2^22, minimum of 5 | 0.52 / 1.03 |
+
+## GPU
 
 NVIDIA A100 40 GB PCIe, GPU idle, cudaEvent timings, 0.5 s warm-up, minimum of 21:
 
