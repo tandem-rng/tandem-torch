@@ -102,7 +102,18 @@ uint64_t fill_normal_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint3
     uint64_t next;
     switch (out.scalar_type()) {
     case torch::kFloat: next = tandem::fill_normal_f32(key.data(), pos, K, out.data_ptr<float>(), n, stream); break;
-    case torch::kDouble: next = tandem::fill_normal_f64(key.data(), pos, K, out.data_ptr<double>(), n, stream); break;
+    case torch::kDouble: {
+        // The float64 fill takes its miss list from cudaMallocAsync. The default pool returns
+        // freed memory at every synchronize, so each fill would map fresh memory, which halves
+        // the A100 throughput. The pool keeps at most the largest miss list, n / 8 bytes.
+        cudaMemPool_t pool;
+        uint64_t keep = UINT64_MAX;
+        if (cudaDeviceGetDefaultMemPool(&pool, out.device().index()) == cudaSuccess)
+            cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &keep);
+        (void)cudaGetLastError();
+        next = tandem::fill_normal_f64(key.data(), pos, K, out.data_ptr<double>(), n, stream);
+        break;
+    }
     default: TORCH_CHECK(false, "fill_normal_cuda: dtype must be float32 or float64");
     }
     C10_CUDA_KERNEL_LAUNCH_CHECK();
