@@ -11,7 +11,7 @@ random number generator. CPU and CUDA fills write the specification's stream bit
 on both. It is not a `torch.Generator`, which third-party code cannot implement.
 
 The build needs a C and C++ compiler, and `nvcc` or `CUDA_HOME` for the CUDA fills. The
-submodules pin tandem-c at 121db59 and tandem-cuda at 76eddae.
+submodules pin tandem-c at 121db59 and tandem-cuda at 6ad0817.
 
 ```sh
 git clone --recurse-submodules https://github.com/tandem-rng/tandem-torch
