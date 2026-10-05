@@ -27,7 +27,10 @@ element equals the whole fill. A draw outside the inner rectangles, about 0.4 %,
 fallback stream keyed by its global draw index. Both devices equal tandem-c bit for bit. An empty
 float64 fill aligns the position to 64, as section 5 of the specification says. On CUDA the fill
 takes its miss list from `cudaMallocAsync`, so the extension raises the release threshold of the
-device's default memory pool. Without that, every fill maps fresh memory and runs at half speed.
+device's default memory pool. Without that, the pool releases the list at every synchronize, and
+the next fill waits for fresh memory. On the A100, with one synchronize per fill, 2^27 elements
+then ran at 536 GiB/s instead of 1030 and 2^24 elements at 126 instead of 754. A C program
+that calls `tandem::fill_normal_f64` in the same way loses as much in its median call.
 
 float32 is Box-Muller. Elements 2j and 2j + 1 are the cos and sin halves from the float32
 uniforms 2j and 2j + 1, so an odd count still consumes both uniforms of its last pair. The CPU
