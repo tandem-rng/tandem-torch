@@ -1,10 +1,12 @@
 // Tensor fills and key derivations over the C reference. The CUDA fills live in _cuda.cu.
 #include <torch/extension.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -97,6 +99,55 @@ uint64_t fill_exponential_cpu(torch::Tensor out, const Key &key, uint64_t pos, u
     return tandem_position(&rng);
 }
 
+/* The alias tables of Appendix C, one per row of a float64 [rows, m] CPU tensor: capacity S
+ * as uint64 [rows], cut as uint64 [rows, m] and alias as uint32 [rows, m]. */
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> choice_tables(torch::Tensor w) {
+    TORCH_CHECK(w.device().is_cpu() && w.is_contiguous() && w.scalar_type() == torch::kDouble && w.dim() == 2,
+                "choice_tables: need a contiguous float64 CPU matrix");
+    const int64_t rows = w.size(0), m = w.size(1);
+    torch::Tensor S = torch::empty({rows}, torch::kUInt64);
+    torch::Tensor cut = torch::empty({rows, m}, torch::kUInt64);
+    torch::Tensor alias = torch::empty({rows, m}, torch::kUInt32);
+    for (int64_t r = 0; r < rows; r++) {
+        tandem_choice_table t;
+        TORCH_CHECK_VALUE(tandem_choice_build(&t, w.data_ptr<double>() + r * m, (size_t)m,
+                                              static_cast<uint64_t *>(cut.data_ptr()) + r * m,
+                                              static_cast<uint32_t *>(alias.data_ptr()) + r * m),
+                          "weights must be finite and not negative, with a positive one in each row, and "
+                          "fewer than 2^32 per row");
+        static_cast<uint64_t *>(S.data_ptr())[r] = t.capacity;
+    }
+    return {S, cut, alias};
+}
+
+/* Row r of the int64 [rows, n] tensor `out` is the choice fill of n elements from table r,
+ * the rows one after another in the stream. */
+uint64_t fill_choice_cpu(torch::Tensor out, torch::Tensor S, torch::Tensor cut, torch::Tensor alias,
+                         const Key &key, uint64_t pos, uint32_t K) {
+    TORCH_CHECK(out.device().is_cpu() && out.is_contiguous() && out.scalar_type() == torch::kLong && out.dim() == 2,
+                "fill_choice_cpu: need a contiguous int64 CPU matrix");
+    const int64_t rows = out.size(0), n = out.size(1), m = cut.size(1);
+    tandem_rng rng = make(key, pos, K);
+    uint32_t buf[4096];
+    uint64_t none;
+    tandem_fill_u64(&rng, &none, 0); // aligns as an empty fill, also when there are no rows
+    for (int64_t r = 0; r < rows; r++) {
+        const tandem_choice_table t = {static_cast<uint64_t *>(S.data_ptr())[r],
+                                       static_cast<const uint64_t *>(cut.data_ptr()) + r * m,
+                                       static_cast<const uint32_t *>(alias.data_ptr()) + r * m, (uint32_t)m};
+        int64_t *o = out.data_ptr<int64_t>() + r * n;
+        // A fill cut at element boundaries equals the whole fill, so chunks need no care.
+        int64_t i = 0;
+        do {
+            int64_t k = std::min<int64_t>(n - i, 4096);
+            tandem_fill_choice(&rng, buf, (size_t)k, &t);
+            for (int64_t e = 0; e < k; e++) o[i + e] = buf[e];
+            i += k;
+        } while (i < n);
+    }
+    return tandem_position(&rng);
+}
+
 /* Fisher-Yates from the end with one sequential scalar bounded draw per step. The scalar draw
  * rejects by discarding, so the position after the shuffle depends on the draws. */
 std::pair<torch::Tensor, uint64_t> randperm_cpu(int64_t n, const Key &key, uint64_t pos, uint32_t K) {
@@ -155,6 +206,8 @@ uint64_t fill_below_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32
 uint64_t randint_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K, uint64_t range, int64_t low);
 uint64_t fill_normal_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K);
 uint64_t fill_exponential_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint32_t K);
+uint64_t fill_choice_cuda(torch::Tensor out, torch::Tensor S, torch::Tensor cut, torch::Tensor alias,
+                          const Key &key, uint64_t pos, uint32_t K);
 #endif
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
@@ -162,6 +215,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fill_below_cpu", &fill_below_cpu);
     m.def("fill_normal_cpu", &fill_normal_cpu);
     m.def("fill_exponential_cpu", &fill_exponential_cpu);
+    m.def("choice_tables", &choice_tables);
+    m.def("fill_choice_cpu", &fill_choice_cpu);
     m.def("randperm_cpu", &randperm_cpu);
     m.def("at", &at_value);
     m.def("seed", &seed_key);
@@ -174,6 +229,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("randint_cuda", &randint_cuda);
     m.def("fill_normal_cuda", &fill_normal_cuda);
     m.def("fill_exponential_cuda", &fill_exponential_cuda);
+    m.def("fill_choice_cuda", &fill_choice_cuda);
     m.attr("has_cuda") = true;
 #else
     m.attr("has_cuda") = false;

@@ -45,6 +45,16 @@ def c_float_rows(text, name):
             for s, out, e in re.findall(r"\{(\d+)ull,\s*\{(.*?)\},\s*(\d+)u\}", body, re.S)]
 
 
+def choice_rows(text):
+    """Rows {weights, capacity, start, out[64], end_pos} of tandem-c's weighted choice table."""
+    weights = {name: [float(x) for x in re.findall(r"[-+0-9.e]+", body)]
+               for name, body in re.findall(r"double (CROSS_CHOICE_W\d+)\[\d+\] = \{(.*?)\};", text, re.S)}
+    body = re.search(r"CROSS_CHOICE\[\] = \{(.*?)\n\};", text, re.S).group(1)
+    return [{"weights": weights[w], "capacity": int(s, 16), "start": int(p), "out": ints(out), "end_pos": int(e)}
+            for w, s, p, out, e in re.findall(
+                r"\{(CROSS_CHOICE_W\d+), \d+, 0x([0-9a-f]+)ull, (\d+)ull,\s*\{(.*?)\},\s*(\d+)u\}", body, re.S)]
+
+
 def floats(text, name, ctype):
     body = re.search(rf"{ctype} {name}\[2 \* CROSS_NORMAL_COUNT\] = \{{(.*?)\}};", text, re.S).group(1)
     return [float(x.rstrip("f")) for x in re.findall(r"[-+0-9.e]+f?", body)]
@@ -75,5 +85,7 @@ out = {
     # Box-Muller pairs after one bool from seed 42: element 2i is the cos half, 2i + 1 the sin half.
     "normal_f32": floats(normal, "CROSS_NORMALF", "float"),
     "normal_f32_end_pos": int(re.search(r"CROSS_NORMALF_END_POS = (\d+)u", normal).group(1)),
+    # Weighted choice fills of seed 42 from the position `start` of each row. capacity is S.
+    "c_choice": choice_rows((C_TESTS / "cross_choice.h").read_text()),
 }
 (ROOT / "tests" / "cross.json").write_text(json.dumps(out, indent=1) + "\n")

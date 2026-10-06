@@ -34,6 +34,8 @@ s = t.get_state(); t.set_state(s)                # as on torch.Generator, also m
 - `randint(low, high, size, dtype, device, out=)`: Lemire's method, same values on CUDA.
 - `randn(*shape, out=)`: float64 ziggurat, float32 Box-Muller. Bit exact except CUDA float32, within 16 ulps.
 - `exponential(*shape, out=)`: `-log(1 - u)` as tandem-c, bit exact on CPU and CUDA.
+- `multinomial(input, num_samples, replacement=True, out=)`: weighted choice of Appendix C,
+  zero-based int64 as `torch.multinomial`, rows for a 2-D input, bit exact on CPU and CUDA.
 - `randperm(n)`, `shuffle(x, dim)`: Fisher-Yates, defined on the CPU, `n < 2^32`.
 - `at(dtype, i)`: element `i` of the next fill without advancing, for 32 and 64-bit types.
 - `split(index)`, `fork(n)`, `sub(purpose)`: child generators.

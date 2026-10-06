@@ -307,10 +307,12 @@ def test_exponential_is_exp1(dtype):
 
 @pytest.mark.parametrize("device", DEVICES)
 def test_empty_fills_keep_or_align_the_position(device):
-    """An empty float64 normal fill aligns to 64, as section 5 of the specification says for
-    every fill. The other derived fills keep the position."""
+    """Empty float64 normal and weighted choice fills align to 64, as section 5 of the
+    specification says for every fill. The other derived fills keep the position."""
     key = tt.Tandem(5).key
     assert tt.randn(key, 37, 0, dtype=torch.float64, device=device)[1] == 64
+    assert tt.multinomial(key, 37, torch.ones(3, device=device), 0, True)[1] == 64
+    assert tt.multinomial(key, 37, torch.ones(0, 3, device=device), 5, True)[1] == 64
     assert tt.randn(key, 37, 0, dtype=torch.float32, device=device)[1] == 37
     for dtype in (torch.float32, torch.float64):
         assert tt.exponential(key, 37, 0, dtype=dtype, device=device)[1] == 37
@@ -374,6 +376,12 @@ def test_argument_errors():
         tt.Tandem(0).bits(2, dtype=torch.float32)
     with pytest.raises(TypeError):
         tt.Tandem(0).fill_(torch.empty(2, dtype=torch.float8_e4m3fn))
+    # torch.multinomial's default is without replacement, which Appendix C does not define.
+    with pytest.raises(ValueError):
+        tt.Tandem(0).multinomial(torch.ones(3), 2)
+    for w in ([1.0, -1.0], [0.0, 0.0], [1.0, float("nan")], [1.0, float("inf")], []):
+        with pytest.raises(ValueError):
+            tt.Tandem(0).multinomial(torch.tensor(w), 2, True)
 
 
 def test_entropy_seeds_differ():
@@ -516,6 +524,62 @@ def test_shuffle_permutes_along_dim(device):
     assert torch.equal(y.cpu(), x.cpu()[:, perm])
 
 
+# ---- Weighted choice ---------------------------------------------------------------------
+
+
+def test_multinomial_matches_the_spec_vectors():
+    """Appendix C: the table of each case and the indices of draws 0 to 15."""
+    for case in VEC["choice"]["cases"]:
+        w = torch.tensor(case["weights"], dtype=torch.float64)
+        S, cut, alias = tt._ext.choice_tables(w.view(1, -1))
+        assert S.tolist() == [int(case["S"], 16)], case["name"]
+        assert cut.view(-1).tolist() == [int(c, 16) for c in case["cut"]], case["name"]
+        assert alias.view(-1).tolist() == case["alias"], case["name"]
+        got, nxt = tt.multinomial(KEY, 0, w, 16, True, K=K)
+        assert got.tolist() == case["indices"] and nxt == 16 * 64, case["name"]
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_multinomial_matches_tandem_c(device):
+    """tandem-c's choice fills of seed 42 from three starts, for m up to 100 with zero,
+    subnormal and huge weights."""
+    key = tt.Tandem(42).key
+    for row in CROSS["c_choice"]:
+        w = torch.tensor(row["weights"], dtype=torch.float64, device=device)
+        assert tt._ext.choice_tables(w.cpu().view(1, -1))[0].item() == row["capacity"]
+        got, nxt = tt.multinomial(key, row["start"], w, len(row["out"]), True)
+        assert got.dtype == torch.int64 and got.cpu().tolist() == row["out"], (len(w), row["start"])
+        assert nxt == row["end_pos"]
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_multinomial_rows_draw_one_after_another(device):
+    """A 2-D input, as in torch, draws row r from its own weights after the draws of the rows
+    before it. Integer weights convert to float64, and out may be strided."""
+    key = tt.Tandem(3).key
+    w = torch.tensor([[1, 0, 5], [2, 2, 0], [0, 0, 7]], device=device)
+    got, nxt = tt.multinomial(key, 37, w, 1001, True)
+    pos = 37
+    for r in range(3):
+        want, pos = tt.multinomial(key, pos, w[r].double(), 1001, True)
+        assert torch.equal(got[r], want), r
+    assert got.shape == (3, 1001) and nxt == pos
+    out = torch.empty(3, 2002, dtype=torch.int64, device=device)[:, ::2]
+    o, n2 = tt.multinomial(key, 37, w, 1001, True, out=out)
+    assert o is out and n2 == nxt and torch.equal(out, got)
+
+
+def test_multinomial_frequencies_follow_the_weights():
+    """Pearson's chi-square of 1e6 draws against w / sum(w) is below 20.52, the 0.1 % critical
+    value for 5 degrees of freedom, and the zero weight never appears."""
+    w = torch.tensor([2, 0.1, 0, 1, 0.7, 3.8, 0.3], dtype=torch.float64)
+    n = 10**6
+    counts = torch.bincount(tt.Tandem(17).multinomial(w, n, True), minlength=len(w)).double()
+    assert counts[2] == 0
+    expect = n * w[w > 0] / w.sum()
+    assert ((counts[w > 0] - expect) ** 2 / expect).sum().item() < 20.52
+
+
 # ---- CUDA agrees with the CPU ------------------------------------------------------------
 
 ALL_DTYPES = [torch.bool, torch.uint8, torch.int8, torch.uint16, torch.int16, torch.float16,
@@ -570,6 +634,21 @@ def test_cuda_randint_fused_low_and_widening_equal_cpu(dtype, lo, hi):
     out = torch.empty(1001, dtype=dtype, device="cuda")
     c, nc = tt.randint(key, 33, lo, hi, out=out)
     assert na == nb == nc and torch.equal(a, b.cpu()) and c is out and torch.equal(a, out.cpu())
+
+
+@CUDA
+def test_cuda_multinomial_equals_cpu():
+    """The device maps the plain 64-bit fill through the host-built table, so it gives the CPU
+    indices for one row, many rows, m = 1 and float32 weights."""
+    w = tt.Tandem(5).rand(1000) ** 4
+    w[::7] = 0
+    key = tt.Tandem(9).key
+    for weights in (w, w.view(10, 100), torch.tensor([0.25]), torch.tensor([1.0, 2.0, 3.0, 4.0]).float()):
+        for pos in (0, 33, 1000):
+            for n in (0, 1, 7, 1001, 2**16 + 3):
+                a, na = tt.multinomial(key, pos, weights, n, True)
+                b, nb = tt.multinomial(key, pos, weights.cuda(), n, True)
+                assert na == nb and b.is_cuda and torch.equal(a, b.cpu()), (weights.shape, pos, n)
 
 
 @CUDA

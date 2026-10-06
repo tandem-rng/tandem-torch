@@ -14,7 +14,8 @@ import torch
 
 from . import _ext
 
-__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "randn", "exponential", "at", "has_cuda"]
+__all__ = ["Tandem", "rand", "bits", "randint", "randperm", "randn", "exponential", "multinomial", "at",
+           "has_cuda"]
 
 has_cuda = _ext.has_cuda
 
@@ -234,6 +235,44 @@ def _float_fill(kind, key, position, shape, dtype, device, K, out):
     return t, nxt
 
 
+def multinomial(key, position, input, num_samples, replacement=False, *, K=32, out=None):
+    """Weighted choice of Appendix C of the specification, as ``torch.multinomial(input,
+    num_samples, replacement=True)``: zero-based int64 indices, each with probability
+    proportional to its weight, on the device of ``input``. A 2-D ``input`` draws each row's
+    samples from that row's weights.
+
+    The weights convert to float64 and must be finite and not negative, with a positive one in
+    each row. The host builds an alias table of each row by exact integer arithmetic, and
+    element i is the table's index for 64-bit draw i, the rows one after another. CPU and CUDA
+    give the indices of ``tandem_fill_choice`` bit for bit. The draws are with replacement only,
+    so ``replacement`` must be True. Returns ``(tensor, next_position)``."""
+    if not replacement:
+        raise ValueError("multinomial draws with replacement only, pass replacement=True")
+    if input.dim() not in (1, 2) or input.is_complex():
+        raise ValueError("input must be a 1-D or 2-D tensor of real weights")
+    shape = (*input.shape[:-1], int(num_samples))
+    if out is not None:
+        _fit(out, shape)
+        if out.dtype != torch.int64:
+            raise TypeError("out must be int64")
+    w = input.detach().to("cpu", torch.float64).contiguous()
+    w = w.unsqueeze(0) if w.dim() == 1 else w
+    S, cut, alias = _ext.choice_tables(w)
+    t = out if out is not None and out.is_contiguous() and out.device == input.device else torch.empty(
+        shape, dtype=torch.int64, device=input.device)
+    key, position = _check_key(key), _check_position(position)
+    rows = t.view(w.shape[0], shape[-1])
+    if input.device.type == "cpu":
+        nxt = _ext.fill_choice_cpu(rows, S, cut, alias, key, position, K)
+    elif input.device.type == "cuda" and has_cuda:
+        nxt = _ext.fill_choice_cuda(rows, *(x.to(input.device) for x in (S, cut, alias)), key, position, K)
+    else:
+        raise RuntimeError(f"tandem_torch fills CPU and CUDA tensors, not {input.device.type}")
+    if out is not None and t is not out:
+        out.copy_(t)
+    return (out if out is not None else t), nxt
+
+
 _AT = {torch.uint32: ("u32", 32, False), torch.int32: ("u32", 32, True),
        torch.uint64: ("u64", 64, False), torch.int64: ("u64", 64, True),
        torch.float32: ("f32", 32, False), torch.float64: ("f64", 64, False)}
@@ -378,6 +417,12 @@ class Tandem:
         """Standard exponential draws, see :func:`exponential`."""
         t, self.position = exponential(self.key, self.position, *shape, dtype=dtype,
                                        device=device, K=self.chunk_length, out=out)
+        return t
+
+    def multinomial(self, input, num_samples, replacement=False, *, out=None):
+        """Weighted choice with replacement, see :func:`multinomial`."""
+        t, self.position = multinomial(self.key, self.position, input, num_samples, replacement,
+                                       K=self.chunk_length, out=out)
         return t
 
     # Derived generators --------------------------------------------------------------------

@@ -3,6 +3,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -106,6 +107,41 @@ uint64_t fill_normal_cuda(torch::Tensor out, const Key &key, uint64_t pos, uint3
     default: TORCH_CHECK(false, "fill_normal_cuda: dtype must be float32 or float64");
     }
     C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return next;
+}
+
+// Appendix C's draw: element e of row e / n maps its 64-bit draw through that row's table.
+__global__ void choice_kernel(uint64_t *x, uint64_t total, uint64_t n, uint32_t m, const uint64_t *S,
+                              const uint64_t *cut, const uint32_t *alias) {
+    for (uint64_t e = blockIdx.x * (uint64_t)blockDim.x + threadIdx.x; e < total;
+         e += (uint64_t)gridDim.x * blockDim.x) {
+        const uint64_t row = e / n, r = x[e], j = __umul64hi(r, m), c = row * m + j;
+        x[e] = __umul64hi(r * m, S[row]) < cut[c] ? j : alias[c];
+    }
+}
+
+// The plain u64 fill writes the draws into out, and the kernel maps them in place, so out
+// holds the indices of the CPU fill with no scratch.
+uint64_t fill_choice_cuda(torch::Tensor out, torch::Tensor S, torch::Tensor cut, torch::Tensor alias,
+                          const Key &key, uint64_t pos, uint32_t K) {
+    TORCH_CHECK(out.device().is_cuda() && out.is_contiguous() && out.scalar_type() == torch::kLong && out.dim() == 2,
+                "fill_choice_cuda: need a contiguous int64 CUDA matrix");
+    TORCH_CHECK(S.device() == out.device() && cut.device() == out.device() && alias.device() == out.device(),
+                "fill_choice_cuda: the table must be on the device of out");
+    c10::cuda::CUDAGuard guard(out.device());
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    const uint64_t total = (uint64_t)out.numel(), n = (uint64_t)out.size(1);
+    uint64_t *x = static_cast<uint64_t *>(out.data_ptr());
+    uint64_t next = tandem::fill_u64(key.data(), pos, K, x, total, stream);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    if (total) {
+        const unsigned blocks = (unsigned)std::min<uint64_t>((total + 255) / 256, 1u << 16);
+        choice_kernel<<<blocks, 256, 0, stream>>>(x, total, n, (uint32_t)cut.size(1),
+                                                  static_cast<const uint64_t *>(S.data_ptr()),
+                                                  static_cast<const uint64_t *>(cut.data_ptr()),
+                                                  static_cast<const uint32_t *>(alias.data_ptr()));
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
     return next;
 }
 

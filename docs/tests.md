@@ -8,8 +8,8 @@ pixi run test     # tests/test_tandem.py
 
 - Every vector of the specification, from `tests/vectors.json`.
 - Stream dumps in `tests/data` from several offsets.
-- `randint`, `randn` and `exponential` against `tests/cross.json`, made by `tools/cross_json.py` from the
-  submodule fixtures. `tools/bump.sh` moves the pins to the latest main.
+- `randint`, `randn`, `exponential` and `multinomial` against `tests/cross.json`, made by
+  `tools/cross_json.py` from the submodule fixtures. `tools/bump.sh` moves the pins to the latest main.
 - With a CUDA device, CUDA fills against CPU fills for every dtype.
 
 `tests/test_tandem.py` checks every vector of the specification (`tests/vectors.json`, a copy
