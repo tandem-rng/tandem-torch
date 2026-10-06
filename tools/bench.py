@@ -1,4 +1,5 @@
-"""Throughput of 2**27-element fills against torch's own generator, into preallocated tensors.
+"""Throughput of 2**27-element fills against torch's own generator, into preallocated tensors, and
+on CUDA against cuRAND Philox4x32-10 for each output type.
 
 CPU: minimum of 7 wall-clock timings after a warm-up. CUDA: cudaEvent timings, half a second of
 warm-up, minimum of 21. Usage: python tools/bench.py [cpu|cuda]
@@ -82,6 +83,37 @@ for dtype in (torch.float32, torch.float64):
     name = str(dtype).removeprefix("torch.")
     rows.append((f"Tandem.exponential {name} out=", gibs(lambda: t.exponential(out=buf), buf.nbytes)))
     rows.append((f"Tensor.exponential_ {name}", gibs(lambda: buf.exponential_(generator=gen), buf.nbytes)))
+
+if device == "cuda":
+    # cuRAND's host API on torch's stream, through the libcurand that PyTorch's CUDA wheel installs.
+    # cuRAND has no 8-, 16- or 64-bit integer output for Philox, no bounded integers and no
+    # exponentials: those rows take the nearest call, 32-bit words into the same bytes or the
+    # uniform the exponential reads.
+    import ctypes
+    import os
+
+    import nvidia.curand
+
+    cr = ctypes.CDLL(os.path.join(nvidia.curand.__path__[0], "lib", "libcurand.so.10"))
+    cg = ctypes.c_void_p()
+    assert cr.curandCreateGenerator(ctypes.byref(cg), 161) == 0  # CURAND_RNG_PSEUDO_PHILOX4_32_10
+    assert cr.curandSetPseudoRandomGeneratorSeed(cg, ctypes.c_ulonglong(42)) == 0
+    assert cr.curandSetStream(cg, ctypes.c_void_p(torch.cuda.current_stream().cuda_stream)) == 0
+
+    def curand(call, buf, count, *args):
+        out, n = ctypes.c_void_p(buf.data_ptr()), ctypes.c_size_t(count)
+        return lambda: getattr(cr, call)(cg, out, n, *args)
+
+    normal = {torch.float32: (ctypes.c_float(0), ctypes.c_float(1)),
+              torch.float64: (ctypes.c_double(0), ctypes.c_double(1))}
+    for call, dtype, words, extra in (
+            ("curandGenerateUniform", torch.float32, 1, ()), ("curandGenerateUniformDouble", torch.float64, 1, ()),
+            ("curandGenerate", torch.uint32, 1, ()), ("curandGenerate", torch.uint8, 0.25, ()),
+            ("curandGenerate", torch.int64, 2, ()), ("curandGenerateNormal", torch.float32, 1, normal[torch.float32]),
+            ("curandGenerateNormalDouble", torch.float64, 1, normal[torch.float64])):
+        buf = torch.empty(N, dtype=dtype, device=device)
+        name = str(dtype).removeprefix("torch.")
+        rows.append((f"cuRAND {call} {name}", gibs(curand(call, buf, int(N * words), *extra), buf.nbytes)))
 
 for name, g in rows:
     print(f"{name:44s} {g:8.1f} GiB/s")
