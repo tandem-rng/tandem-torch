@@ -22,7 +22,7 @@ pip install --no-build-isolation .
 ```
 
 The reference sources sit in the `external/tandem-c` (1adf2ac) and `external/tandem-cuda`
-(6ad0817) git submodules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init`
+(2693c63) git submodules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init`
 in an existing clone. GitHub's ZIP download omits submodules and does not build.
 
 The build needs a C and C++ compiler. With `nvcc` on the path (or `CUDA_HOME` set) the CUDA

@@ -20,36 +20,31 @@ Apple M4, one thread, minimum of 7:
 ## GPU
 
 NVIDIA A100 40 GB PCIe, cudaEvent timings, 0.5 s warm-up, minimum of 21, `python tools/bench.py
-cuda`. The GPU had no other process, and a second run agreed within 3 %. The cuRAND rows are
-Philox4x32-10 of cuRAND 10.3.9 in the same run, by the same method, on torch's stream through the
-libcurand of PyTorch's CUDA wheel. cuRAND has no 8-, 16- or 64-bit integer output for Philox, no
-bounded integers and no exponentials, so the cuRAND column gives the nearest call for those rows,
-marked "nearest": `curandGenerate` into the same bytes, or the uniform the exponential reads.
+cuda`. The GPU had no other process, and a second run agreed within 5 %. The third-party columns
+come from the same run, by the same method: cuRAND Philox4x32-10 of cuRAND 10.3.9 on torch's
+stream through the libcurand of PyTorch's CUDA wheel, then torch's own generator into a
+preallocated tensor. cuRAND has no 8-, 16- or 64-bit integer output for Philox, no bounded
+integers and no exponentials, so the cuRAND column gives the nearest call for those rows, marked
+"nearest": `curandGenerate` into the same bytes, or the uniform the exponential reads.
 
-| | GiB/s | cuRAND Philox4x32-10 |
-|---|---|---|
-| `Tandem.rand` float32 / float64 | 1327 / 1364 | 1259 / 793 (`curandGenerateUniform`, `curandGenerateUniformDouble`) |
-| `torch.rand` float32 / float64 | 1110 / 1195 | |
-| `Tandem.bits` uint32 | 1327 | 1278 (`curandGenerate`) |
-| `Tandem` fill uint8 / bool / float16 | 1174 / 992 / 1221 | 1209, nearest (`curandGenerate`) |
-| `Tandem.randint` int32 `[0, 1000)`, `out=` / allocating | 1282 / 1255 | 1278, nearest (`curandGenerate`) |
-| `torch.randint` int32 `[0, 1000)` | 839 | |
-| `Tandem.randint` int32 full range, `out=` / allocating | 1275 / 1249 | 1278, nearest (`curandGenerate`) |
-| `torch.randint` int32 full range | 336 | |
-| `Tandem.randint` int64 `[0, 1000)`, `out=` / allocating | 1341 / 1325 | 1302, nearest (`curandGenerate`) |
-| `torch.randint` int64 `[0, 1000)` | 1292 | |
-| `Tandem.randint` int64 `[-2^62, 2^62)`, `out=` / allocating | 1280 / 1278 | 1302, nearest (`curandGenerate`) |
-| `torch.randint` int64 `[-2^62, 2^62)` | 619 | |
-| `Tandem.randn` float32 `out=` / allocating | 1123 / 1112 | 864 (`curandGenerateNormal`) |
-| `torch.randn` float32 | 774 | |
-| `Tandem.randn` float64 `out=` / allocating | 1028 / 1027 | 572 (`curandGenerateNormalDouble`) |
-| `torch.randn` float64 | 569 | |
-| `Tandem.exponential` float32 / float64 | 984 / 900 | 1259 / 793, nearest (`curandGenerateUniform`, `curandGenerateUniformDouble`) |
-| `Tensor.exponential_` float32 / float64 | 999 / 562 | |
+| | Tandem | cuRAND Philox4x32-10 | cuRAND call | torch |
+|---|---|---|---|---|
+| `rand` float32 / float64 | 1331 / 1364 | 1209 / 789 | `curandGenerateUniform`, `curandGenerateUniformDouble` | 1138 / 1207 |
+| `bits` uint32 | 1331 | 1282 | `curandGenerate` | |
+| fill uint8 / bool / float16 | 1163 / 1017 / 1239 | 1209 | `curandGenerate`, nearest | |
+| `randint` int32 `[0, 1000)`, `out=` / allocating | 1275 / 1262 | 1282 | `curandGenerate`, nearest | 845 |
+| `randint` int32 full range, `out=` / allocating | 1275 / 1249 | 1282 | `curandGenerate`, nearest | 332 |
+| `randint` int64 `[0, 1000)`, `out=` / allocating | 1338 / 1323 | 1302 | `curandGenerate`, nearest | 1278 |
+| `randint` int64 `[-2^62, 2^62)`, `out=` / allocating | 1294 / 1280 | 1302 | `curandGenerate`, nearest | 619 |
+| `randn` float32, `out=` / allocating | 1179 / 1144 | 848 | `curandGenerateNormal` | 775 |
+| `randn` float64, `out=` / allocating | 1020 / 1023 | 571 | `curandGenerateNormalDouble` | 577 |
+| `exponential` float32 / float64 (torch: `Tensor.exponential_`) | 1120 / 932 | 1209 / 789 | `curandGenerateUniform`, `curandGenerateUniformDouble`, nearest | 997 / 563 |
 
 cuRAND leads where its nearest call does less work: 32-bit words where the fill stores bytes,
 bools or halves, no bounding, and uniforms without the logarithm. The extension pins tandem-cuda
-6ad0817, before its folded exponential, which tandem-cuda runs at 1149 GiB/s in float32.
+2693c63. Against 6ad0817 in the same session, its folded exponential took `exponential` from 977
+to 1120 GiB/s in float32 and from 910 to 932 in float64, and the f32 square root without the range
+check took `randn` float32 `out=` from 1130 to 1179. The other cells moved by under 4 %.
 
 `randint` and `randn` take `out=` and then write into it, otherwise they allocate. An empty
 `out` takes the requested shape, as in torch. A nonempty `out` of another shape is an error,
