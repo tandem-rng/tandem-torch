@@ -21,7 +21,7 @@ pip install torch                      # a CPU or CUDA build, see pytorch.org
 pip install --no-build-isolation .
 ```
 
-The reference sources sit in the `external/tandem-c` (c8d96a0) and `external/tandem-cuda`
+The reference sources sit in the `external/tandem-c` (ef67bd7) and `external/tandem-cuda`
 (2693c63) git submodules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init`
 in an existing clone. GitHub's ZIP download omits submodules and does not build.
 
