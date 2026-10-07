@@ -41,7 +41,7 @@ integers and no exponentials, so the cuRAND column gives the nearest call for th
 | `exponential` float32 / float64 (torch: `Tensor.exponential_`) | 1120 / 932 | 1209 / 789 | `curandGenerateUniform`, `curandGenerateUniformDouble`, nearest | 997 / 563 |
 
 cuRAND leads where its nearest call does less work: 32-bit words where the fill stores bytes,
-bools or halves, no bounding, and uniforms without the logarithm. The extension pins tandem-cuda
+bools or halves, no bounding, and uniforms without the logarithm. The table was measured with tandem-cuda
 2693c63. Against 6ad0817 in the same session, its folded exponential took `exponential` from 977
 to 1120 GiB/s in float32 and from 910 to 932 in float64, and the f32 square root without the range
 check took `randn` float32 `out=` from 1130 to 1179. The other cells moved by under 4 %.

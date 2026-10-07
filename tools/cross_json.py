@@ -1,5 +1,5 @@
-"""Rebuild tests/cross.json from the generated cross-check headers of the submodules, which
-come from tandem-cuda's core.hpp. Run after moving the pins: python tools/cross_json.py"""
+"""Rebuild tests/cross.json from the generated cross-check headers of tandem-c, which come
+from tandem-cuda's core.hpp. Run after moving the pins: python tools/cross_json.py"""
 
 import json
 import re
@@ -7,7 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 C_TESTS = ROOT / "external" / "tandem-c" / "tests"
-CUDA_TESTS = ROOT / "external" / "tandem-cuda" / "tests"
 
 
 def ints(text):
@@ -60,14 +59,19 @@ def floats(text, name, ctype):
     return [float(x.rstrip("f")) for x in re.findall(r"[-+0-9.e]+f?", body)]
 
 
+def exp_rows(text, name):
+    """A tandem-c exponential table as rows {pos, n, out} of fills from the start."""
+    return [{"pos": r["start"], "n": len(r["out"]), "out": r["out"]} for r in c_float_rows(text, name)]
+
+
 fill = (C_TESTS / "cross_fill_below.h").read_text()
-cuda = (CUDA_TESTS / "cross_fill_below.h").read_text()
-cuda_normal = (CUDA_TESTS / "cross_fill_normal.h").read_text()
-cuda_exp = (CUDA_TESTS / "cross_fill_exponential.h").read_text()
+cuda = (C_TESTS / "cuda_fill_below.h").read_text()
+cuda_normal = (C_TESTS / "cuda_fill_normal.h").read_text()
+cuda_exp = (C_TESTS / "cross_exponential.h").read_text()
 normal = (C_TESTS / "cross_normal.h").read_text()
 key = re.search(r"CROSS_FILL_KEY\[4\] = \{(.*?)\}", cuda).group(1)
 out = {
-    "source": "external/tandem-c/tests and external/tandem-cuda/tests, made by tools/cross_json.py",
+    "source": "external/tandem-c/tests, made by tools/cross_json.py",
     # Seed 42, fills from the position `start` of each row.
     "c_fill_below32": c_rows(fill, "CROSS_FILL_U32"),
     "c_fill_below64": c_rows(fill, "CROSS_FILL_U64"),
@@ -78,8 +82,8 @@ out = {
     # Fills from the key of seed 42, K = 32, at the given position.
     "cuda_normal64": normal_rows(cuda_normal, "CROSS_NORMAL64"),
     "cuda_normal32": normal_rows(cuda_normal, "CROSS_NORMAL32"),
-    "cuda_exp64": normal_rows(cuda_exp, "CROSS_EXP64"),
-    "cuda_exp32": normal_rows(cuda_exp, "CROSS_EXP32"),
+    "cuda_exp64": exp_rows(cuda_exp, "CROSS_EXPONENTIAL"),
+    "cuda_exp32": exp_rows(cuda_exp, "CROSS_EXPONENTIALF"),
     # Ziggurat fills of seed 42 from the position `start` of each row.
     "normal_f64": c_float_rows(normal, "CROSS_NORMAL"),
     # Box-Muller pairs after one bool from seed 42: element 2i is the cos half, 2i + 1 the sin half.
