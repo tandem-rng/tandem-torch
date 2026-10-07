@@ -29,22 +29,23 @@ integers and no exponentials, so the cuRAND column gives the nearest call for th
 
 | | Tandem | cuRAND Philox4x32-10 | cuRAND call | torch |
 |---|---|---|---|---|
-| `rand` float32 / float64 | 1331 / 1364 | 1209 / 789 | `curandGenerateUniform`, `curandGenerateUniformDouble` | 1138 / 1207 |
-| `bits` uint32 | 1331 | 1282 | `curandGenerate` | |
-| fill uint8 / bool / float16 | 1163 / 1017 / 1239 | 1209 | `curandGenerate`, nearest | |
-| `randint` int32 `[0, 1000)`, `out=` / allocating | 1275 / 1262 | 1282 | `curandGenerate`, nearest | 845 |
-| `randint` int32 full range, `out=` / allocating | 1275 / 1249 | 1282 | `curandGenerate`, nearest | 332 |
-| `randint` int64 `[0, 1000)`, `out=` / allocating | 1338 / 1323 | 1302 | `curandGenerate`, nearest | 1278 |
-| `randint` int64 `[-2^62, 2^62)`, `out=` / allocating | 1294 / 1280 | 1302 | `curandGenerate`, nearest | 619 |
-| `randn` float32, `out=` / allocating | 1179 / 1144 | 848 | `curandGenerateNormal` | 775 |
-| `randn` float64, `out=` / allocating | 1020 / 1023 | 571 | `curandGenerateNormalDouble` | 577 |
-| `exponential` float32 / float64 (torch: `Tensor.exponential_`) | 1120 / 932 | 1209 / 789 | `curandGenerateUniform`, `curandGenerateUniformDouble`, nearest | 997 / 563 |
+| `rand` float32 / float64 | 1320 / 1355 | 1262 / 789 | `curandGenerateUniform`, `curandGenerateUniformDouble` | 1105 / 1179 |
+| `bits` uint32 | 1323 | 1285 | `curandGenerate` | |
+| fill uint8 / bool / float16 | 1152 / 984 / 1203 | 1197 | `curandGenerate`, nearest | |
+| `randint` int32 `[0, 1000)`, `out=` / allocating | 1278 / 1242 | 1285 | `curandGenerate`, nearest | 836 |
+| `randint` int32 full range, `out=` / allocating | 1272 / 1239 | 1285 | `curandGenerate`, nearest | 328 |
+| `randint` int64 `[0, 1000)`, `out=` / allocating | 1336 / 1311 | 1294 | `curandGenerate`, nearest | 1288 |
+| `randint` int64 `[-2^62, 2^62)`, `out=` / allocating | 1282 / 1275 | 1294 | `curandGenerate`, nearest | 615 |
+| `randn` float32, `out=` / allocating | 1165 / 1120 | 852 | `curandGenerateNormal` | 773 |
+| `randn` float64, `out=` / allocating | 1026 / 1013 | 560 | `curandGenerateNormalDouble` | 568 |
+| `exponential` float32 / float64 (torch: `Tensor.exponential_`) | 899 / 903 | 1262 / 789 | `curandGenerateUniform`, `curandGenerateUniformDouble`, nearest | 1011 / 562 |
 
 cuRAND leads where its nearest call does less work: 32-bit words where the fill stores bytes,
-bools or halves, no bounding, and uniforms without the logarithm. The table was measured with tandem-cuda
-2693c63. Against 6ad0817 in the same session, its folded exponential took `exponential` from 977
-to 1120 GiB/s in float32 and from 910 to 932 in float64, and the f32 square root without the range
-check took `randn` float32 `out=` from 1130 to 1179. The other cells moved by under 4 %.
+bools or halves, no bounding, and uniforms without the logarithm. The table was measured with
+tandem-cuda e98daee. Its float32 exponential is within 0.571 ulp for every draw, so that
+`1 - exp(-x)` maps back to the draw's own 2^-24 grid point. Its two-float logarithm takes 10 more
+f32 operations per draw than the single-float one before it, and torch's `Tensor.exponential_`
+leads that cell.
 
 `randint` and `randn` take `out=` and then write into it, otherwise they allocate. An empty
 `out` takes the requested shape, as in torch. A nonempty `out` of another shape is an error,
