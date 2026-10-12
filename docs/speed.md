@@ -1,4 +1,4 @@
-# Speed
+# Performance
 
 `python tools/bench.py [cpu|cuda]` produces the figures, with preallocated outputs and 2^27 elements.
 

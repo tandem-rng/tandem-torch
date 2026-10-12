@@ -6,7 +6,7 @@ PyTorch tensors from Tandem8x32. CPU and CUDA fills write the stream of the
 - [API](api.md): the generator, dtypes, normals, exponentials, bounded draws and parallel use.
 - [Design](design.md): the CUDA fills and the bounded, normal and exponential contracts.
 - [Tests](tests.md): what the suite checks.
-- [Speed](speed.md): M4 and A100 figures against torch.
+- [Performance](speed.md): M4 and A100 figures against torch.
 
 This is not a `torch.Generator`. That class is final and its RNG hooks are internal to
 PyTorch, so no third-party generator can drive `torch.rand`. `tandem_torch` fills tensors
