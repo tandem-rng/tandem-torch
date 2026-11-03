@@ -49,6 +49,13 @@ specification requires, so a `uint8` draw followed by a `float64` draw skips to 
 `tandem_torch.rand(key, position, *shape, ...)` and `tandem_torch.bits(...)` return
 `(tensor, next_position)` for code that keeps the position itself.
 
+`from_key` requires an initial position below `2**63`. Draws and `set_state` accept successor
+positions throughout the unsigned 64-bit range. Each draw must stay within that range.
+An empty `randint` call leaves the position unchanged, including full-width integer ranges.
+
+`out` retains its identity and view semantics. Strided, conjugate, and negative views receive
+the same logical values as a newly allocated tensor.
+
 Supported dtypes: `bool`, `uint8` to `uint64`, the signed integers as the unsigned draws
 reinterpreted, `float16` (`(raw >> 5) * 2^-11`), `float32` (24 random bits) and `float64`
 (53 random bits), and `complex64` and `complex128`, whose element is the real then the
