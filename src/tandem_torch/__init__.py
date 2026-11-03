@@ -44,12 +44,17 @@ def _check_key(key):
     return key
 
 
+def _direct_output(out):
+    """Raw pointer writes match the tensor's logical values."""
+    return out.is_contiguous() and not out.is_conj() and not out.is_neg()
+
+
 def _fill(out, key, pos, K):
-    """Fill a contiguous tensor in place. Returns the position after the fill."""
+    """Fill a tensor in place. Returns the position after the fill."""
     w = _BITS.get(out.dtype)
     if w is None:
         raise TypeError(f"unsupported dtype {out.dtype}")
-    if not out.is_contiguous():
+    if not _direct_output(out):
         tmp = torch.empty_like(out, memory_format=torch.contiguous_format)
         nxt = _fill(tmp, key, pos, K)
         out.copy_(tmp)
@@ -160,14 +165,14 @@ def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=
             and dtype in ((torch.int32, torch.uint32) if r <= 2**32 else ()) + (torch.int64, torch.uint64)):
         # One fused kernel adds low and widens into dtype. The device draws what the unfused
         # path draws, since the width follows the range and not dtype.
-        t = out if out is not None and out.is_contiguous() else torch.empty(shape, dtype=dtype, device=device)
+        t = out if out is not None and _direct_output(out) else torch.empty(shape, dtype=dtype, device=device)
         nxt = _ext.randint_cuda(t, _check_key(key), position, K, r, ((low + 2**63) % 2**64) - 2**63)
         if t is not out and out is not None:
             out.copy_(t)
         return (out if out is not None else t), nxt
     # A result of the draw's width is filled in place, in `out` when it is contiguous.
     bits = 64 if r > 2**32 else 32
-    dest = out.view(_U[bits]) if out is not None and info.bits == bits and out.is_contiguous() else None
+    dest = out.view(_U[bits]) if out is not None and info.bits == bits and _direct_output(out) else None
     d, nxt = _below(_check_key(key), position, K, r, math.prod(shape), device, dest)
     # A draw added to low in wrapping arithmetic of the draw's width is exact once the result
     # fits dtype.
@@ -175,7 +180,7 @@ def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=
         t = d.view(torch.int32)
     elif d.dtype == torch.uint64 and dtype in (torch.int64, torch.uint64):
         t = d.view(torch.int64)
-    elif info.bits == 64 and out is not None and out.is_contiguous():
+    elif info.bits == 64 and out is not None and _direct_output(out):
         # Widen the 32-bit draws straight into out. They are below 2^32, so int64 holds them.
         t, bits = out.view(torch.int64).view(-1), 64
         t.copy_(d)
@@ -221,7 +226,7 @@ def _float_fill(kind, key, position, shape, dtype, device, K, out):
     """A float32 or float64 fill of the C or CUDA function `kind`, rounded for other dtypes."""
     t = _target(shape, dtype, torch.float64, device, out, lambda d: d in _FLOATS)
     native = t.dtype if t.dtype in (torch.float32, torch.float64) else torch.float32
-    buf = t if t.dtype == native and t.is_contiguous() else torch.empty(
+    buf = t if t.dtype == native and _direct_output(t) else torch.empty(
         t.shape, dtype=native, device=t.device)
     key, position = _check_key(key), _check_position(position)
     if t.device.type == "cpu":
@@ -258,7 +263,7 @@ def multinomial(key, position, input, num_samples, replacement=False, *, K=32, o
     w = input.detach().to("cpu", torch.float64).contiguous()
     w = w.unsqueeze(0) if w.dim() == 1 else w
     S, cut, alias = _ext.choice_tables(w)
-    t = out if out is not None and out.is_contiguous() and out.device == input.device else torch.empty(
+    t = out if out is not None and _direct_output(out) and out.device == input.device else torch.empty(
         shape, dtype=torch.int64, device=input.device)
     key, position = _check_key(key), _check_position(position)
     rows = t.view(w.shape[0], shape[-1])

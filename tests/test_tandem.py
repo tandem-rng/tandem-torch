@@ -488,6 +488,52 @@ def test_out_gives_the_same_values_as_a_new_tensor(device):
             assert got is out and n2 == nxt and torch.equal(out.cpu(), want.cpu()), dtype
 
 
+@pytest.mark.parametrize("device", DEVICES)
+def test_conjugate_out_receives_the_logical_complex_values(device):
+    storage = torch.empty(6, dtype=torch.complex128, device=device)
+    out = storage.conj()
+    t = tt.Tandem(3)
+    want = tt.Tandem(3).rand(6, dtype=out.dtype, device=device)
+    assert t.rand(out=out) is out
+    assert torch.equal(out, want) and torch.equal(storage, want.conj())
+    assert t.position == 6 * 128
+
+
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize(
+    "draw,args,dtype",
+    [
+        ("rand", (), torch.float64),
+        ("bits", (), torch.int32),
+        ("randint", (-5, 50), torch.int32),
+        ("randint", (-3, 9), torch.int64),
+        ("randint", (-(2**63), 2**63), torch.int64),
+        ("randn", (), torch.float64),
+        ("exponential", (), torch.float64),
+    ],
+)
+def test_negative_out_receives_the_logical_values(device, draw, args, dtype):
+    storage = torch.empty(6, dtype=dtype, device=device)
+    out = torch._neg_view(storage)
+    t, reference = tt.Tandem(3), tt.Tandem(3)
+    want = getattr(reference, draw)(*args, 6, dtype=dtype, device=device)
+    assert getattr(t, draw)(*args, out=out) is out
+    assert torch.equal(out, want) and torch.equal(storage, -want)
+    assert t.position == reference.position
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_multinomial_negative_out_receives_the_logical_indices(device):
+    weights = torch.tensor([1, 2, 3], device=device)
+    storage = torch.empty(6, dtype=torch.int64, device=device)
+    out = torch._neg_view(storage)
+    t, reference = tt.Tandem(3), tt.Tandem(3)
+    want = reference.multinomial(weights, 6, True)
+    assert t.multinomial(weights, 6, True, out=out) is out
+    assert torch.equal(out, want) and torch.equal(storage, -want)
+    assert t.position == reference.position
+
+
 def lemire(words, n):
     """One scalar draw below n over an iterator of 32-bit stream words, as tandem_u32_below."""
     while True:
