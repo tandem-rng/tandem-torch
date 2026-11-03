@@ -365,6 +365,32 @@ def test_state_round_trip_and_manual_seed():
     assert t.manual_seed(42) == tt.Tandem(42, K=8)
 
 
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize(
+    "draw,dtype", [("rand", torch.float64), ("bits", torch.uint64)]
+)
+def test_draws_continue_past_the_initial_position_limit(device, draw, dtype):
+    start = 2**63 - 64
+    t = tt.Tandem.from_key(KEY, start, K)
+    whole = getattr(tt.Tandem.from_key(KEY, start, K), draw)(
+        4, dtype=dtype, device=device
+    )
+    first = getattr(t, draw)(2, dtype=dtype, device=device)
+    last = getattr(t, draw)(2, dtype=dtype, device=device)
+    assert torch.equal(torch.cat([first, last]), whole)
+    assert t.position == start + 4 * 64
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_state_restores_a_successor_past_the_initial_position_limit(device):
+    t = tt.Tandem.from_key(KEY, 2**63 - 64, K)
+    whole = tt.Tandem.from_key(KEY, 2**63 - 64, K).bits(4, device=device)
+    t.bits(2, device=device)
+    restored = tt.Tandem(0).set_state(t.get_state())
+    assert restored == t
+    assert torch.equal(restored.bits(2, device=device), whole[2:])
+
+
 def test_argument_errors():
     with pytest.raises(ValueError):
         tt.Tandem(-1)

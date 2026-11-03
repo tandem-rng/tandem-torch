@@ -112,14 +112,14 @@ def rand(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     bfloat16 is a tandem-torch extension, ``(raw16 >> 8) * 2^-8``. Returns
     ``(tensor, next_position)``."""
     t = _target(shape, dtype, torch.float64, device, out, lambda d: d in _FLOATS + _COMPLEX)
-    return t, _fill(t, _check_key(key), _check_position(position), K)
+    return t, _fill(t, _check_key(key), _check_u64(position), K)
 
 
 def bits(key, position, *shape, dtype=None, device="cpu", K=32, out=None):
     """Stream words as integers, uint64 by default. Signed types are the unsigned draws
     reinterpreted. Returns ``(tensor, next_position)``."""
     t = _target(shape, dtype, torch.uint64, device, out, lambda d: d in _BITS and d not in _FLOATS + _COMPLEX)
-    return t, _fill(t, _check_key(key), _check_position(position), K)
+    return t, _fill(t, _check_key(key), _check_u64(position), K)
 
 
 def _below(key, pos, K, r, n, device, dest=None):
@@ -159,7 +159,7 @@ def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=
     info = torch.iinfo(dtype)
     if not info.min <= low < high <= info.max + 1:
         raise ValueError(f"need {info.min} <= low < high <= {info.max + 1} for {dtype}")
-    position = _check_position(position)
+    position = _check_u64(position)
     r = high - low
     if (torch.device(device).type == "cuda" and has_cuda and r not in (2**32, 2**64)
             and dtype in ((torch.int32, torch.uint32) if r <= 2**32 else ()) + (torch.int64, torch.uint64)):
@@ -228,7 +228,7 @@ def _float_fill(kind, key, position, shape, dtype, device, K, out):
     native = t.dtype if t.dtype in (torch.float32, torch.float64) else torch.float32
     buf = t if t.dtype == native and _direct_output(t) else torch.empty(
         t.shape, dtype=native, device=t.device)
-    key, position = _check_key(key), _check_position(position)
+    key, position = _check_key(key), _check_u64(position)
     if t.device.type == "cpu":
         nxt = getattr(_ext, f"fill_{kind}_cpu")(buf, key, position, K)
     elif t.device.type == "cuda" and has_cuda:
@@ -265,7 +265,7 @@ def multinomial(key, position, input, num_samples, replacement=False, *, K=32, o
     S, cut, alias = _ext.choice_tables(w)
     t = out if out is not None and _direct_output(out) and out.device == input.device else torch.empty(
         shape, dtype=torch.int64, device=input.device)
-    key, position = _check_key(key), _check_position(position)
+    key, position = _check_key(key), _check_u64(position)
     rows = t.view(w.shape[0], shape[-1])
     if input.device.type == "cpu":
         nxt = _ext.fill_choice_cpu(rows, S, cut, alias, key, position, K)
@@ -293,7 +293,7 @@ def at(key, position, dtype, i, K=32):
     if not 0 <= i < 2**63:
         raise ValueError("i must be in [0, 2**63)")
     kind, w, signed = _AT[dtype]
-    x = _ext.at(_check_key(key), _check_position(position), _check_K(K), kind, i)
+    x = _ext.at(_check_key(key), _check_u64(position), _check_K(K), kind, i)
     return x - 2**w if signed and x >= 2**(w - 1) else x
 
 
@@ -306,7 +306,7 @@ def randperm(key, position, n, *, dtype=torch.int64, device="cpu", K=32):
         raise TypeError(f"unsupported dtype {dtype} for randperm")
     if n > torch.iinfo(dtype).max + 1:
         raise ValueError(f"n does not fit {dtype}")
-    perm, nxt = _ext.randperm_cpu(int(n), _check_key(key), _check_position(position), K)
+    perm, nxt = _ext.randperm_cpu(int(n), _check_key(key), _check_u64(position), K)
     return perm.to(dtype=dtype, device=device), nxt
 
 
@@ -359,7 +359,7 @@ class Tandem:
     def set_state(self, state):
         """Restore a state from :meth:`get_state`. Returns the generator."""
         *key, position, K = struct.unpack("<4IQI", bytes(state.cpu().to(torch.uint8).tolist()))
-        self.key, self.position, self.chunk_length = tuple(key), _check_position(position), _check_K(K)
+        self.key, self.position, self.chunk_length = tuple(key), position, _check_K(K)
         return self
 
     def manual_seed(self, seed):
