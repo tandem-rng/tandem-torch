@@ -51,6 +51,7 @@ specification requires, so a `uint8` draw followed by a `float64` draw skips to 
 
 `from_key` requires an initial position below `2**63`. Draws and `set_state` accept successor
 positions throughout the unsigned 64-bit range. Each draw must stay within that range.
+An empty `randint` call leaves the position unchanged, including full-width integer ranges.
 
 `out` retains its identity and view semantics. Strided, conjugate, and negative views receive
 the same logical values as a newly allocated tensor.

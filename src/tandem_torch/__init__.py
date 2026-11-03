@@ -129,7 +129,7 @@ def _below(key, pos, K, r, n, device, dest=None):
     d = dest if dest is not None else torch.empty(
         n, dtype=torch.uint64 if wide else torch.uint32, device=device)
     if r == 2**32 or r == 2**64:
-        return d, _fill(d, key, pos, K)
+        return d, pos if n == 0 else _fill(d, key, pos, K)
     if torch.device(device).type == "cpu":
         return d, _ext.fill_below_cpu(d, key, pos, K, r)
     if not has_cuda:
@@ -142,7 +142,8 @@ def randint(key, position, low, high, size=None, *, dtype=None, device="cpu", K=
     when the range is at most 2^32 and ``fill_u64_below`` above. Each element consumes one
     32-bit or 64-bit draw, a rejected draw retries on a fallback stream, and CPU and CUDA give
     the same values. ``out`` is a tensor to write into, whose dtype and shape then decide the
-    result. Not part of the specification. Returns ``(tensor, next_position)``."""
+    result. An empty fill leaves the position alone. Not part of the specification. Returns
+    ``(tensor, next_position)``."""
     if size is None and out is None:
         raise TypeError("randint needs size or out")
     shape = None if size is None else _shape((size,))

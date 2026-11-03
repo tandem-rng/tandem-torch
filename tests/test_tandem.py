@@ -316,8 +316,8 @@ def test_empty_fills_keep_or_align_the_position(device):
     assert tt.randn(key, 37, 0, dtype=torch.float32, device=device)[1] == 37
     for dtype in (torch.float32, torch.float64):
         assert tt.exponential(key, 37, 0, dtype=dtype, device=device)[1] == 37
-    for r in (3, 2**40):
-        assert tt.randint(key, 37, 0, r, 0, device=device)[1] == 37
+    for r in (3, 2**32, 2**40, 2**64):
+        assert tt.randint(key, 37, 0, r, 0, dtype=torch.uint64, device=device)[1] == 37
 
 
 def test_shape_tuples_and_empty_out_as_torch():
